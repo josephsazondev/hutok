@@ -369,6 +369,7 @@ const inp = { width: '100%', border: `1.5px solid ${C.border}`, borderRadius: 12
 const btnNavy = { width: '100%', background: `linear-gradient(135deg, ${C.navy} 0%, ${C.navy2} 100%)`, color: '#fff', border: 'none', borderRadius: 15, padding: 15, fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', boxShadow: SH.fab, letterSpacing: -0.2 };
 const btnGhost = { width: '100%', background: C.surface, color: C.sub, border: `1.5px solid ${C.border}`, borderRadius: 15, padding: 14, fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 10, fontFamily: 'Inter,sans-serif' };
 const cardStyle = { background: C.surface, borderRadius: 20, border: `1px solid ${C.border}`, boxShadow: SH.card, margin: '0 16px 14px', overflow: 'hidden' };
+const editIconBtn = { width: 32, height: 32, borderRadius: 10, background: C.bg, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 };
 
 function MoveButton({ onClick }) {
   return (
@@ -632,30 +633,36 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
 
 // ── Add Installment Sheet ─────────────────────────────────────────────────────
 
-function AddInstallmentSheet({ data, setData, onClose }) {
-  const [name, setName] = useState('');
-  const [source, setSource] = useState('');
-  const [monthlyAmount, setMonthlyAmount] = useState('');
-  const [totalMonths, setTotalMonths] = useState('');
-  const [startDate, setStartDate] = useState(todayStr());
+function AddInstallmentSheet({ data, setData, onClose, init }) {
+  const [name, setName] = useState(init?.name || '');
+  const [source, setSource] = useState(init?.source || '');
+  const [monthlyAmount, setMonthlyAmount] = useState(init ? String(init.monthlyAmount) : '');
+  const [totalMonths, setTotalMonths] = useState(init ? String(init.totalMonths) : '');
+  const [startDate, setStartDate] = useState(init?.startDate || todayStr());
 
   function handleSave() {
-    const inst = { installmentId: 'I_tmp_' + Date.now(), name, source, monthlyAmount: Number(monthlyAmount), totalMonths: Number(totalMonths), startDate, createdAt: todayStr() };
-    setData(d => ({ ...d, installments: [...d.installments, inst] }));
-    api.post({ type: 'append_installment', ...inst });
+    if (init) {
+      const inst = { installmentId: init.installmentId, name, source, monthlyAmount: Number(monthlyAmount), totalMonths: Number(totalMonths), startDate, createdAt: init.createdAt };
+      setData(d => ({ ...d, installments: d.installments.map(i => i.installmentId === init.installmentId ? { ...i, ...inst } : i) }));
+      api.post({ type: 'update_installment', rowId: init.installmentId, ...inst });
+    } else {
+      const inst = { installmentId: 'I_tmp_' + Date.now(), name, source, monthlyAmount: Number(monthlyAmount), totalMonths: Number(totalMonths), startDate, createdAt: todayStr() };
+      setData(d => ({ ...d, installments: [...d.installments, inst] }));
+      api.post({ type: 'append_installment', ...inst });
+    }
     setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
     onClose();
   }
 
   return (
-    <Sheet onClose={onClose} title="Add installment">
+    <Sheet onClose={onClose} title={init ? 'Edit installment' : 'Add installment'}>
       <Field label="Name"><input style={inp} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Aircon 1.5hp" /></Field>
       <Field label="Source / store"><input style={inp} value={source} onChange={e => setSource(e.target.value)} placeholder="e.g. Abenson" /></Field>
       <Field label="Monthly amount ₱"><input style={inp} type="number" value={monthlyAmount} onChange={e => setMonthlyAmount(e.target.value)} placeholder="0.00" /></Field>
       <Field label="Total months"><input style={inp} type="number" value={totalMonths} onChange={e => setTotalMonths(e.target.value)} placeholder="e.g. 12" /></Field>
       <Field label="Start date"><input style={inp} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
       <div style={{ padding: '6px 20px 0' }}>
-        <button style={btnNavy} className="pressable" onClick={handleSave}>Add installment</button>
+        <button style={btnNavy} className="pressable" onClick={handleSave}>{init ? 'Save changes' : 'Add installment'}</button>
         <button style={btnGhost} className="pressable" onClick={onClose}>Cancel</button>
       </div>
     </Sheet>
@@ -664,24 +671,30 @@ function AddInstallmentSheet({ data, setData, onClose }) {
 
 // ── Add Amortization Sheet ────────────────────────────────────────────────────
 
-function AddAmortizationSheet({ data, setData, onClose }) {
-  const [name, setName] = useState('');
-  const [lender, setLender] = useState('');
-  const [monthlyAmount, setMonthlyAmount] = useState('');
-  const [totalYears, setTotalYears] = useState('');
-  const [startDate, setStartDate] = useState(todayStr());
-  const [principalAmount, setPrincipalAmount] = useState('');
+function AddAmortizationSheet({ data, setData, onClose, init }) {
+  const [name, setName] = useState(init?.name || '');
+  const [lender, setLender] = useState(init?.lender || '');
+  const [monthlyAmount, setMonthlyAmount] = useState(init ? String(init.monthlyAmount) : '');
+  const [totalYears, setTotalYears] = useState(init ? String(init.totalYears) : '');
+  const [startDate, setStartDate] = useState(init?.startDate || todayStr());
+  const [principalAmount, setPrincipalAmount] = useState(init ? String(init.principalAmount) : '');
 
   function handleSave() {
-    const amort = { amortizationId: 'A_tmp_' + Date.now(), name, lender, monthlyAmount: Number(monthlyAmount), totalYears: Number(totalYears), startDate, principalAmount: Number(principalAmount), createdAt: todayStr() };
-    setData(d => ({ ...d, amortizations: [...d.amortizations, amort] }));
-    api.post({ type: 'append_amortization', ...amort });
+    if (init) {
+      const amort = { amortizationId: init.amortizationId, name, lender, monthlyAmount: Number(monthlyAmount), totalYears: Number(totalYears), startDate, principalAmount: Number(principalAmount), createdAt: init.createdAt };
+      setData(d => ({ ...d, amortizations: d.amortizations.map(a => a.amortizationId === init.amortizationId ? { ...a, ...amort } : a) }));
+      api.post({ type: 'update_amortization', rowId: init.amortizationId, ...amort });
+    } else {
+      const amort = { amortizationId: 'A_tmp_' + Date.now(), name, lender, monthlyAmount: Number(monthlyAmount), totalYears: Number(totalYears), startDate, principalAmount: Number(principalAmount), createdAt: todayStr() };
+      setData(d => ({ ...d, amortizations: [...d.amortizations, amort] }));
+      api.post({ type: 'append_amortization', ...amort });
+    }
     setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
     onClose();
   }
 
   return (
-    <Sheet onClose={onClose} title="Add amortization">
+    <Sheet onClose={onClose} title={init ? 'Edit amortization' : 'Add amortization'}>
       <Field label="Name"><input style={inp} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. House & lot" /></Field>
       <Field label="Lender"><input style={inp} value={lender} onChange={e => setLender(e.target.value)} placeholder="e.g. Pag-IBIG" /></Field>
       <Field label="Monthly amount ₱"><input style={inp} type="number" value={monthlyAmount} onChange={e => setMonthlyAmount(e.target.value)} placeholder="0.00" /></Field>
@@ -689,7 +702,7 @@ function AddAmortizationSheet({ data, setData, onClose }) {
       <Field label="Start date"><input style={inp} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
       <Field label="Principal amount ₱"><input style={inp} type="number" value={principalAmount} onChange={e => setPrincipalAmount(e.target.value)} placeholder="0.00" /></Field>
       <div style={{ padding: '6px 20px 0' }}>
-        <button style={btnNavy} className="pressable" onClick={handleSave}>Add amortization</button>
+        <button style={btnNavy} className="pressable" onClick={handleSave}>{init ? 'Save changes' : 'Add amortization'}</button>
         <button style={btnGhost} className="pressable" onClick={onClose}>Cancel</button>
       </div>
     </Sheet>
@@ -892,7 +905,7 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openSettings
 
 // ── Installment Card ──────────────────────────────────────────────────────────
 
-function InstallmentCard({ inst, data, setData }) {
+function InstallmentCard({ inst, data, setData, onEdit }) {
   const [showMove, setShowMove] = useState(false);
   const cm = currentMonthStr();
   const months = generateMonths(inst.startDate, Number(inst.totalMonths));
@@ -932,6 +945,7 @@ function InstallmentCard({ inst, data, setData }) {
           <div style={{ fontWeight: 800, fontSize: 14.5, color: prog.paid > 0 ? C.paid : C.unpaid }}>{fmt(prog.paid)}</div>
           <div style={{ fontSize: 10.5, color: C.muted }}>of {fmt(prog.total)}</div>
         </div>
+        <button onClick={() => onEdit(inst)} className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
       </div>
       <ProgressBar pct={prog.pct} color={C.paid} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 6, padding: '0 16px 12px' }}>
@@ -949,11 +963,11 @@ function InstallmentCard({ inst, data, setData }) {
   );
 }
 
-function InstallmentsScreen({ data, setData, openAddInstallment, openSettings }) {
+function InstallmentsScreen({ data, setData, openAddInstallment, openEditInstallment, openSettings }) {
   return (
     <div className="screen">
       <Header title="Installments" subtitle="Short-term monthly plans" onSettings={openSettings} onAdd={openAddInstallment} />
-      {data.installments.map(inst => <InstallmentCard key={inst.installmentId} inst={inst} data={data} setData={setData} />)}
+      {data.installments.map(inst => <InstallmentCard key={inst.installmentId} inst={inst} data={data} setData={setData} onEdit={openEditInstallment} />)}
       {data.installments.length === 0 && <EmptyState icon="repeat" title="No installments yet" subtitle="Tap + to add one" />}
     </div>
   );
@@ -961,7 +975,7 @@ function InstallmentsScreen({ data, setData, openAddInstallment, openSettings })
 
 // ── Amortization Card ─────────────────────────────────────────────────────────
 
-function AmortizationCard({ amort, data, setData }) {
+function AmortizationCard({ amort, data, setData, onEdit }) {
   const [showMove, setShowMove] = useState(false);
   const cm = currentMonthStr();
   const curYear = String(new Date().getFullYear());
@@ -1019,6 +1033,7 @@ function AmortizationCard({ amort, data, setData }) {
           <div style={{ fontWeight: 800, fontSize: 14.5, color: C.accent }}>{fmt(prog.paidAmount)}</div>
           <div style={{ fontSize: 10.5, color: C.muted }}>of {fmt(amort.principalAmount)}</div>
         </div>
+        <button onClick={() => onEdit(amort)} className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
       </div>
       <ProgressBar pct={prog.pct} color={C.accent} />
       <div style={{ background: C.amortBg, margin: '0 16px 12px', borderRadius: 14, padding: '12px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -1060,11 +1075,11 @@ function AmortizationCard({ amort, data, setData }) {
   );
 }
 
-function AmortizationScreen({ data, setData, openAddAmortization, openSettings }) {
+function AmortizationScreen({ data, setData, openAddAmortization, openEditAmortization, openSettings }) {
   return (
     <div className="screen">
       <Header title="Amortization" subtitle="Long-term yearly loans" onSettings={openSettings} onAdd={openAddAmortization} />
-      {data.amortizations.map(amort => <AmortizationCard key={amort.amortizationId} amort={amort} data={data} setData={setData} />)}
+      {data.amortizations.map(amort => <AmortizationCard key={amort.amortizationId} amort={amort} data={data} setData={setData} onEdit={openEditAmortization} />)}
       {data.amortizations.length === 0 && <EmptyState icon="bank" title="No amortizations yet" subtitle="Tap + to add one" />}
     </div>
   );
@@ -1180,6 +1195,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [sheet, setSheet] = useState(null);
   const [editEntry, setEditEntry] = useState(null);
+  const [editItem, setEditItem] = useState(null);
 
   useEffect(() => {
     const s = getSettings();
@@ -1193,8 +1209,10 @@ export default function App() {
 
   function openEditEntry(entry) { setEditEntry(entry); setSheet('editEntry'); }
   function openAddEntry() { setEditEntry(null); setSheet('addEntry'); }
+  function openEditInstallment(inst) { setEditItem(inst); setSheet('editInstallment'); }
+  function openEditAmortization(amort) { setEditItem(amort); setSheet('editAmortization'); }
   function openSettings() { setSheet('settings'); }
-  function closeSheet() { setSheet(null); setEditEntry(null); }
+  function closeSheet() { setSheet(null); setEditEntry(null); setEditItem(null); }
 
   return (
     <div style={{ background: C.bg, minHeight: '100dvh', display: 'flex', justifyContent: 'center' }}>
@@ -1209,8 +1227,8 @@ export default function App() {
         ) : (
           <div style={{ overflowY: 'auto', paddingBottom: 20 }}>
             {tab === 'groups' && <GroupsScreen data={data} setData={setData} openAddEntry={openAddEntry} openEditEntry={openEditEntry} openSettings={openSettings} />}
-            {tab === 'installments' && <InstallmentsScreen data={data} setData={setData} openAddInstallment={() => setSheet('addInstallment')} openSettings={openSettings} />}
-            {tab === 'amortization' && <AmortizationScreen data={data} setData={setData} openAddAmortization={() => setSheet('addAmortization')} openSettings={openSettings} />}
+            {tab === 'installments' && <InstallmentsScreen data={data} setData={setData} openAddInstallment={() => setSheet('addInstallment')} openEditInstallment={openEditInstallment} openSettings={openSettings} />}
+            {tab === 'amortization' && <AmortizationScreen data={data} setData={setData} openAddAmortization={() => setSheet('addAmortization')} openEditAmortization={openEditAmortization} openSettings={openSettings} />}
             {tab === 'summary' && <SummaryScreen data={data} openSettings={openSettings} />}
           </div>
         )}
@@ -1220,7 +1238,9 @@ export default function App() {
         {(sheet === 'addEntry') && <AddEntrySheet data={data} setData={setData} initEntry={editEntry} onClose={closeSheet} />}
         {sheet === 'editEntry' && editEntry && <EditMoveSheet entry={editEntry} data={data} setData={setData} onClose={closeSheet} onEdit={entry => { setEditEntry(entry); setSheet('addEntry'); }} />}
         {sheet === 'addInstallment' && <AddInstallmentSheet data={data} setData={setData} onClose={closeSheet} />}
+        {sheet === 'editInstallment' && editItem && <AddInstallmentSheet data={data} setData={setData} init={editItem} onClose={closeSheet} />}
         {sheet === 'addAmortization' && <AddAmortizationSheet data={data} setData={setData} onClose={closeSheet} />}
+        {sheet === 'editAmortization' && editItem && <AddAmortizationSheet data={data} setData={setData} init={editItem} onClose={closeSheet} />}
         {sheet === 'settings' && <SettingsSheet onClose={closeSheet} />}
       </div>
     </div>
