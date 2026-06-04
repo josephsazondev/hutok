@@ -4,7 +4,6 @@ dist-ssr/
 *.local
 
 # Local backend & docs
-Code.gs
 apps-script/
 SETUP.md
 PROJECT_SUMMARY.md
