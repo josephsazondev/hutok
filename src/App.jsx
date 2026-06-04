@@ -82,6 +82,21 @@ function fmtDate(iso) {
   const [y, m, d] = String(iso).split('-').map(Number);
   return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 }
+// Normalize a possibly date-coerced value back to a YYYY-MM period string.
+function toPeriod(v) {
+  if (!v) return '';
+  return String(v).slice(0, 7);
+}
+// Display title/subtitle for an entry — transactions show store/item;
+// installment & amortization payments show the plan name + formatted month.
+function entryTitle(e) {
+  return e.entryType === 'transaction' ? e.store : (e.item || '');
+}
+function entrySubtitle(e) {
+  if (e.entryType === 'transaction') return e.item || '';
+  const p = toPeriod(e.store);
+  return p ? periodLabel(p) : '';
+}
 function generateMonths(startDate, totalMonths) {
   const start = dateToMonth(startDate);
   if (!start) return [];
@@ -459,23 +474,24 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
   const [txPaid, setTxPaid] = useState(initEntry?.entryType === 'transaction' && initEntry?.status === 'partial' ? String(initEntry?.amountPaid ?? '') : '');
   const [groupId, setGroupId] = useState(initEntry?.groupId || '');
   const [linkedId, setLinkedId] = useState(initEntry?.linkedId || '');
-  const [period, setPeriod] = useState(currentMonthStr());
+  const [period, setPeriod] = useState(initEntry && initEntry.entryType !== 'transaction' ? (toPeriod(initEntry.store) || currentMonthStr()) : currentMonthStr());
   const [newGroup, setNewGroup] = useState(false);
   const [newLabel, setNewLabel] = useState(() => nextGroupLabel(data.groups));
 
-  useEffect(() => {
-    if (type === 'installment_payment' && linkedId) {
-      const inst = data.installments.find(i => i.installmentId === linkedId);
+  // Prefill the amount with the plan's monthly amount when the user picks one.
+  // (Done on select — not via effect — so editing an existing entry keeps its
+  // actual amount, e.g. a partial payment, instead of being overwritten.)
+  function changeLinked(id) {
+    setLinkedId(id);
+    if (!id) return;
+    if (type === 'installment_payment') {
+      const inst = data.installments.find(i => i.installmentId === id);
       if (inst) setAmount(String(inst.monthlyAmount));
-    }
-  }, [linkedId, type, data.installments]);
-
-  useEffect(() => {
-    if (type === 'amortization_payment' && linkedId) {
-      const amort = data.amortizations.find(a => a.amortizationId === linkedId);
+    } else if (type === 'amortization_payment') {
+      const amort = data.amortizations.find(a => a.amortizationId === id);
       if (amort) setAmount(String(amort.monthlyAmount));
     }
-  }, [linkedId, type, data.amortizations]);
+  }
 
   function handleGroupChange(val) {
     if (val === '__new__') { setGroupId(''); setNewGroup(true); }
@@ -609,7 +625,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
 
       {type === 'installment_payment' && <>
         <Field label="Select installment">
-          <select style={inp} value={linkedId} onChange={e => setLinkedId(e.target.value)}>
+          <select style={inp} value={linkedId} onChange={e => changeLinked(e.target.value)}>
             <option value="">— Choose —</option>
             {data.installments.map(i => <option key={i.installmentId} value={i.installmentId}>{i.name}</option>)}
           </select>
@@ -620,7 +636,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
 
       {type === 'amortization_payment' && <>
         <Field label="Select amortization">
-          <select style={inp} value={linkedId} onChange={e => setLinkedId(e.target.value)}>
+          <select style={inp} value={linkedId} onChange={e => changeLinked(e.target.value)}>
             <option value="">— Choose —</option>
             {data.amortizations.map(a => <option key={a.amortizationId} value={a.amortizationId}>{a.name}</option>)}
           </select>
@@ -758,7 +774,7 @@ function EditMoveSheet({ entry, data, setData, onClose, onEdit }) {
   return (
     <Sheet onClose={onClose} title="Entry actions">
       <div style={{ margin: '0 20px 14px', padding: '14px 16px', background: C.bg, borderRadius: 16 }}>
-        <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>{entry.store} {entry.item ? `· ${entry.item}` : ''}</div>
+        <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>{entryTitle(entry)}{entrySubtitle(entry) ? ` · ${entrySubtitle(entry)}` : ''}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
           <span style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{fmt(entry.amount)}</span>
           <Badge status={entry.status} type={entry.entryType} />
@@ -964,8 +980,8 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
                 <button key={entry.entryId} onClick={() => openEditEntry(entry)} className="pressable" style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '11px 16px', borderTop: `1px solid ${C.divider}`, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
                   <span style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, marginRight: 12, background: dot, boxShadow: `0 0 0 3px ${dot}1f` }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.store}</div>
-                    <div style={{ fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.item}</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryTitle(entry)}</div>
+                    <div style={{ fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entrySubtitle(entry)}</div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{fmt(entry.amount)}</div>
@@ -1409,8 +1425,8 @@ function SummaryScreen({ data, openSettings }) {
             {topUnpaid.map((entry, i) => (
               <div key={entry.entryId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 16px', borderBottom: i < topUnpaid.length - 1 ? `1px solid ${C.divider}` : 'none' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.store}</div>
-                  <div style={{ fontSize: 11.5, color: C.muted }}>{entry.item}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryTitle(entry)}</div>
+                  <div style={{ fontSize: 11.5, color: C.muted }}>{entrySubtitle(entry)}</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 800, color: C.unpaid }}>{fmt(entry.amount)}</div>
