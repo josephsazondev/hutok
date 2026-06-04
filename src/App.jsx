@@ -546,11 +546,11 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
       const entry = {
         entryId: initEntry ? initEntry.entryId : 'E_tmp_' + Date.now(),
         groupId: finalGroupId, store, item, amount: total, status, amountPaid: paid,
-        entryType: 'transaction', linkedId: '', createdAt: today,
+        entryType: 'transaction', linkedId: '', createdAt: initEntry ? initEntry.createdAt : today,
       };
       if (initEntry) {
-        setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === initEntry.entryId ? entry : e) }));
-        api.post({ type: 'update_entry', rowId: initEntry.entryId, ...entry });
+        setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === initEntry.entryId ? { ...e, ...entry } : e) }));
+        api.post({ type: 'update_entry', rowId: initEntry.rowId || initEntry.entryId, ...entry });
       } else {
         setData(d => ({ ...d, entries: [entry, ...d.entries] }));
         api.post({ type: 'append_entry', ...entry });
@@ -565,33 +565,48 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
       const derivedStatus = amtPaid >= expected && expected > 0 ? 'paid' : amtPaid > 0 ? 'partial' : 'unpaid';
       const parentName = parent ? parent.name : '';
 
-      const existingPmt = data.payments.find(p => p.parentId === linkedId && p.period === period);
+      // Enforce a single record per (plan, period): keep the first match,
+      // update it, and remove any duplicates left over from earlier bugs.
+      const matchPmts = data.payments.filter(p => p.parentId === linkedId && toPeriod(p.period) === period);
+      const existingPmt = matchPmts[0];
+      const dupePmts = matchPmts.slice(1);
       const pmt = {
         paymentId: existingPmt ? existingPmt.paymentId : 'P_tmp_' + Date.now(),
         parentType, parentId: linkedId, period, amountPaid: amtPaid,
-        expectedAmount: expected, createdAt: today, updatedAt: today,
+        expectedAmount: expected, createdAt: existingPmt ? existingPmt.createdAt : today, updatedAt: today,
       };
-      if (existingPmt) {
-        setData(d => ({ ...d, payments: d.payments.map(p => p.paymentId === existingPmt.paymentId ? pmt : p) }));
-        api.post({ type: 'update_payment', rowId: existingPmt.paymentId, ...pmt });
-      } else {
-        setData(d => ({ ...d, payments: [...d.payments, pmt] }));
-        api.post({ type: 'append_payment', ...pmt });
-      }
+      if (existingPmt) api.post({ type: 'update_payment', rowId: existingPmt.rowId || existingPmt.paymentId, ...pmt });
+      else api.post({ type: 'append_payment', ...pmt });
+      dupePmts.forEach(p => api.post({ type: 'delete_payment', rowId: p.rowId || p.paymentId }));
 
-      const existingEntry = data.entries.find(e => e.linkedId === linkedId && e.store === period && e.entryType === type);
+      const matchEntries = data.entries.filter(e => e.linkedId === linkedId && toPeriod(e.store) === period && e.entryType === type);
+      const existingEntry = matchEntries[0];
+      const dupeEntries = matchEntries.slice(1);
       const entry = {
         entryId: existingEntry ? existingEntry.entryId : 'E_tmp_' + Date.now(),
-        groupId: finalGroupId, store: period, item: parentName,
-        amount: amtPaid, status: derivedStatus, entryType: type, linkedId, createdAt: today,
+        groupId: existingEntry ? (finalGroupId || existingEntry.groupId) : finalGroupId,
+        store: period, item: parentName,
+        amount: amtPaid, status: derivedStatus, entryType: type, linkedId,
+        createdAt: existingEntry ? existingEntry.createdAt : today,
       };
-      if (existingEntry) {
-        setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === existingEntry.entryId ? entry : e) }));
-        api.post({ type: 'update_entry', rowId: existingEntry.entryId, ...entry });
-      } else {
-        setData(d => ({ ...d, entries: [...d.entries, entry] }));
-        api.post({ type: 'append_entry', ...entry });
-      }
+      if (existingEntry) api.post({ type: 'update_entry', rowId: existingEntry.rowId || existingEntry.entryId, ...entry });
+      else api.post({ type: 'append_entry', ...entry });
+      dupeEntries.forEach(e => api.post({ type: 'delete_entry', rowId: e.rowId || e.entryId }));
+
+      // Optimistic state update (dedupe locally too).
+      setData(d => {
+        const dropPmt = new Set(dupePmts.map(p => p.paymentId));
+        let payments = d.payments.filter(p => !dropPmt.has(p.paymentId));
+        payments = existingPmt
+          ? payments.map(p => p.paymentId === existingPmt.paymentId ? { ...p, ...pmt } : p)
+          : [...payments, pmt];
+        const dropEntry = new Set(dupeEntries.map(e => e.entryId));
+        let entries = d.entries.filter(e => !dropEntry.has(e.entryId));
+        entries = existingEntry
+          ? entries.map(e => e.entryId === existingEntry.entryId ? { ...e, ...entry } : e)
+          : [...entries, entry];
+        return { ...d, payments, entries };
+      });
     }
     setTimeout(() => syncData(setData), 1500);
     onClose();
