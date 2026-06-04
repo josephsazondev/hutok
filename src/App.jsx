@@ -78,6 +78,28 @@ function generateMonths(startDate, totalMonths) {
   if (!start) return [];
   return Array.from({ length: Number(totalMonths) }, (_, i) => addMonths(start, i));
 }
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function weekRange(weekStartsOn) {
+  const today = new Date();
+  const dow = today.getDay(); // 0 = Sun … 6 = Sat
+  const diff = weekStartsOn === 'sun' ? dow : (dow + 6) % 7;
+  const start = new Date(today); start.setDate(today.getDate() - diff);
+  const end = new Date(start); end.setDate(start.getDate() + 6);
+  return { from: isoDate(start), to: isoDate(end) };
+}
+function dayLabel(d) {
+  const [y, m, day] = d.split('-').map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+}
+function weekLabel(from, to) {
+  if (!from) return '';
+  if (!to) return `Week of ${dayLabel(from)}`;
+  const sameMonth = from.slice(0, 7) === to.slice(0, 7);
+  const toL = sameMonth ? String(Number(to.slice(8, 10))) : dayLabel(to);
+  return `Week of ${dayLabel(from)}–${toL}`;
+}
 
 // ── API ───────────────────────────────────────────────────────────────────────
 
@@ -430,9 +452,15 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
   const [linkedId, setLinkedId] = useState(initEntry?.linkedId || '');
   const [period, setPeriod] = useState(currentMonthStr());
   const [newGroup, setNewGroup] = useState(false);
-  const [newLabel, setNewLabel] = useState('');
-  const [newFrom, setNewFrom] = useState(todayStr());
-  const [newTo, setNewTo] = useState(todayStr());
+  const [week] = useState(() => weekRange(getSettings().weekStartsOn || 'mon'));
+  const [newLabel, setNewLabel] = useState(() => weekLabel(week.from, week.to));
+  const [labelEdited, setLabelEdited] = useState(false);
+  const [newFrom, setNewFrom] = useState(week.from);
+  const [newTo, setNewTo] = useState(week.to);
+
+  function changeFrom(v) { setNewFrom(v); if (!labelEdited) setNewLabel(weekLabel(v, newTo)); }
+  function changeTo(v) { setNewTo(v); if (!labelEdited) setNewLabel(weekLabel(newFrom, v)); }
+  function changeLabel(v) { setNewLabel(v); setLabelEdited(true); }
 
   useEffect(() => {
     if (type === 'installment_payment' && linkedId) {
@@ -589,9 +617,9 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
         </select>
       </Field>
       {newGroup && <>
-        <Field label="Group label"><input style={inp} value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="e.g. Week of Jun 9" /></Field>
-        <Field label="Date from"><input style={inp} type="date" value={newFrom} onChange={e => setNewFrom(e.target.value)} /></Field>
-        <Field label="Date to"><input style={inp} type="date" value={newTo} onChange={e => setNewTo(e.target.value)} /></Field>
+        <Field label="Date from"><input style={inp} type="date" value={newFrom} onChange={e => changeFrom(e.target.value)} /></Field>
+        <Field label="Date to"><input style={inp} type="date" value={newTo} onChange={e => changeTo(e.target.value)} /></Field>
+        <Field label="Group label"><input style={inp} value={newLabel} onChange={e => changeLabel(e.target.value)} placeholder="e.g. Week of Jun 9" /></Field>
       </>}
 
       <div style={{ padding: '6px 20px 0' }}>
@@ -755,6 +783,12 @@ function SettingsSheet({ onClose }) {
       </Field>
       <Field label="API Key (optional)">
         <input style={inp} value={s.apiKey || ''} onChange={e => upd('apiKey', e.target.value)} placeholder="Leave blank if not set" />
+      </Field>
+      <Field label="Week starts on">
+        <select style={inp} value={s.weekStartsOn || 'mon'} onChange={e => upd('weekStartsOn', e.target.value)}>
+          <option value="mon">Monday</option>
+          <option value="sun">Sunday</option>
+        </select>
       </Field>
       <div style={{ padding: '6px 20px 16px' }}>
         <button style={{ ...btnNavy, opacity: testing ? 0.6 : 1 }} className="pressable" onClick={testConn} disabled={testing}>
