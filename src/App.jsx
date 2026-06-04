@@ -148,6 +148,24 @@ const api = {
   },
 };
 
+// Normalize server data so periods are always YYYY-MM and dates YYYY-MM-DD,
+// even if Google Sheets coerced them into Date objects (returned as timestamps).
+// This keeps payment-period matching reliable.
+function normalizeData(d) {
+  if (!d) return d;
+  const dt = v => (v == null || v === '') ? v : String(v).slice(0, 10);
+  return {
+    groups: (d.groups || []).map(g => ({ ...g, dateFrom: dt(g.dateFrom), dateTo: dt(g.dateTo), createdAt: dt(g.createdAt) })),
+    entries: (d.entries || []).map(e => ({ ...e, store: e.entryType !== 'transaction' ? toPeriod(e.store) : e.store, createdAt: dt(e.createdAt) })),
+    installments: (d.installments || []).map(i => ({ ...i, startDate: dt(i.startDate), createdAt: dt(i.createdAt) })),
+    payments: (d.payments || []).map(p => ({ ...p, period: toPeriod(p.period), createdAt: dt(p.createdAt), updatedAt: dt(p.updatedAt) })),
+    amortizations: (d.amortizations || []).map(a => ({ ...a, startDate: dt(a.startDate), createdAt: dt(a.createdAt) })),
+  };
+}
+function syncData(setData) {
+  api.get('all').then(r => { if (r && !r.error) setData(normalizeData(r)); }).catch(() => {});
+}
+
 // ── Mock data (used when no API URL is configured) ───────────────────────────
 
 const MOCK = {
@@ -465,16 +483,19 @@ function MoveGroupPicker({ groups, onPick }) {
 
 // ── Add Entry Sheet ───────────────────────────────────────────────────────────
 
-function AddEntrySheet({ data, setData, onClose, initEntry }) {
-  const [type, setType] = useState(initEntry?.entryType || 'transaction');
+function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
+  const [type, setType] = useState(initEntry?.entryType || prefill?.entryType || 'transaction');
   const [store, setStore] = useState(initEntry?.entryType === 'transaction' ? (initEntry?.store || '') : '');
   const [item, setItem] = useState(initEntry?.entryType === 'transaction' ? (initEntry?.item || '') : '');
-  const [amount, setAmount] = useState(initEntry ? String(initEntry.amount) : '');
+  const [amount, setAmount] = useState(initEntry ? String(initEntry.amount) : (prefill?.amount != null ? String(prefill.amount) : ''));
   const [status, setStatus] = useState(initEntry?.status || 'unpaid');
   const [txPaid, setTxPaid] = useState(initEntry?.entryType === 'transaction' && initEntry?.status === 'partial' ? String(initEntry?.amountPaid ?? '') : '');
   const [groupId, setGroupId] = useState(initEntry?.groupId || '');
-  const [linkedId, setLinkedId] = useState(initEntry?.linkedId || '');
-  const [period, setPeriod] = useState(initEntry && initEntry.entryType !== 'transaction' ? (toPeriod(initEntry.store) || currentMonthStr()) : currentMonthStr());
+  const [linkedId, setLinkedId] = useState(initEntry?.linkedId || prefill?.linkedId || '');
+  const [period, setPeriod] = useState(
+    initEntry && initEntry.entryType !== 'transaction' ? (toPeriod(initEntry.store) || currentMonthStr())
+      : (prefill?.period || currentMonthStr())
+  );
   const [newGroup, setNewGroup] = useState(false);
   const [newLabel, setNewLabel] = useState(() => nextGroupLabel(data.groups));
 
@@ -572,7 +593,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
         api.post({ type: 'append_entry', ...entry });
       }
     }
-    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    setTimeout(() => syncData(setData), 1500);
     onClose();
   }
 
@@ -683,7 +704,7 @@ function AddInstallmentSheet({ data, setData, onClose, init }) {
       setData(d => ({ ...d, installments: [...d.installments, inst] }));
       api.post({ type: 'append_installment', ...inst });
     }
-    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    setTimeout(() => syncData(setData), 1500);
     onClose();
   }
 
@@ -722,7 +743,7 @@ function AddAmortizationSheet({ data, setData, onClose, init }) {
       setData(d => ({ ...d, amortizations: [...d.amortizations, amort] }));
       api.post({ type: 'append_amortization', ...amort });
     }
-    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    setTimeout(() => syncData(setData), 1500);
     onClose();
   }
 
@@ -753,14 +774,14 @@ function EditMoveSheet({ entry, data, setData, onClose, onEdit }) {
     const updated = { ...entry, groupId: newGroupId };
     setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === entry.entryId ? updated : e) }));
     api.post({ type: 'move_entry', rowId: entry.entryId, groupId: newGroupId });
-    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    setTimeout(() => syncData(setData), 1500);
     onClose();
   }
 
   function handleDelete() {
     setData(d => ({ ...d, entries: d.entries.filter(e => e.entryId !== entry.entryId) }));
     api.post({ type: 'delete_entry', rowId: entry.entryId });
-    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    setTimeout(() => syncData(setData), 1500);
     onClose();
   }
 
@@ -811,7 +832,7 @@ function GroupSheet({ group, data, setData, onClose }) {
     const updated = { ...group, label };
     setData(d => ({ ...d, groups: d.groups.map(g => g.groupId === group.groupId ? updated : g) }));
     api.post({ type: 'update_group', rowId: group.groupId, groupId: group.groupId, label, dateFrom: group.dateFrom, dateTo: group.dateTo, createdAt: group.createdAt });
-    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    setTimeout(() => syncData(setData), 1500);
     onClose();
   }
 
@@ -822,7 +843,7 @@ function GroupSheet({ group, data, setData, onClose }) {
       entries: d.entries.filter(e => e.groupId !== group.groupId),
     }));
     api.post({ type: 'delete_group', groupId: group.groupId });
-    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    setTimeout(() => syncData(setData), 1500);
     onClose();
   }
 
@@ -1038,7 +1059,7 @@ function DetailHeader({ icon, fg, bg, title, sub, amount, amountColor, amountSub
   );
 }
 
-function ScheduleRow({ period, status, paid, expected, last }) {
+function ScheduleRow({ period, status, paid, expected, last, onClick }) {
   const cfg = {
     full:     ['Paid', C.paidText, C.paidBg],
     partial:  ['Partial', C.partialText, C.partialBg],
@@ -1046,20 +1067,24 @@ function ScheduleRow({ period, status, paid, expected, last }) {
     upcoming: ['Upcoming', C.hint, '#f4f4f9'],
   }[status];
   const shownPaid = (status === 'full' || status === 'partial') && paid != null;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', padding: '11px 16px', borderBottom: last ? 'none' : `1px solid ${C.divider}` }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{period}</div>
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{shownPaid ? `${fmt(paid)} of ${fmt(expected)}` : `${fmt(expected)} due`}</div>
-      </div>
-      <span style={badgeStyle(cfg[1], cfg[2])}>{cfg[0]}</span>
+  const inner = <>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{period}</div>
+      <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{shownPaid ? `${fmt(paid)} of ${fmt(expected)}` : `${fmt(expected)} due`}</div>
     </div>
-  );
+    <span style={badgeStyle(cfg[1], cfg[2])}>{cfg[0]}</span>
+    {onClick && <Icon name="chevron" size={15} color={C.hint} style={{ marginLeft: 8 }} />}
+  </>;
+  const base = { display: 'flex', alignItems: 'center', padding: '11px 16px', borderBottom: last ? 'none' : `1px solid ${C.divider}` };
+  if (onClick) {
+    return <button onClick={onClick} className="pressable" style={{ ...base, width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>{inner}</button>;
+  }
+  return <div style={base}>{inner}</div>;
 }
 
 // ── Installment Detail Sheet ──────────────────────────────────────────────────
 
-function InstallmentDetailSheet({ inst, data, onClose, onEdit }) {
+function InstallmentDetailSheet({ inst, data, onClose, onEdit, onAddPayment }) {
   const prog = installmentProgress(inst, data.payments);
   const months = generateMonths(inst.startDate, Number(inst.totalMonths));
   const expected = Number(inst.monthlyAmount);
@@ -1089,12 +1114,16 @@ function InstallmentDetailSheet({ inst, data, onClose, onEdit }) {
         <DetailRow label="Added" value={fmtDate(inst.createdAt)} last />
       </div>
 
-      <SectionLabel>Payment schedule</SectionLabel>
+      <SectionLabel>Payment schedule · tap to record</SectionLabel>
       <div style={detailCard}>
-        {months.map((period, i) => (
-          <ScheduleRow key={period} period={periodLabel(period)} status={getMonthStatus(inst.installmentId, period, data.payments)}
-            paid={getMonthPaid(inst.installmentId, period, data.payments)} expected={expected} last={i === months.length - 1} />
-        ))}
+        {months.map((period, i) => {
+          const paid = getMonthPaid(inst.installmentId, period, data.payments);
+          return (
+            <ScheduleRow key={period} period={periodLabel(period)} status={getMonthStatus(inst.installmentId, period, data.payments)}
+              paid={paid} expected={expected} last={i === months.length - 1}
+              onClick={() => onAddPayment({ entryType: 'installment_payment', linkedId: inst.installmentId, period, amount: paid != null ? paid : expected })} />
+          );
+        })}
       </div>
 
       <div style={{ padding: '0 20px 0' }}>
@@ -1108,12 +1137,14 @@ function InstallmentDetailSheet({ inst, data, onClose, onEdit }) {
 
 // ── Amortization Detail Sheet ─────────────────────────────────────────────────
 
-function AmortizationDetailSheet({ amort, data, onClose, onEdit }) {
+function AmortizationDetailSheet({ amort, data, onClose, onEdit, onAddPayment }) {
   const prog = amortizationProgress(amort, data.payments);
   const curYear = String(new Date().getFullYear());
   const startYear = Number((amort.startDate || '').slice(0, 4));
   const years = Array.from({ length: Number(amort.totalYears) }, (_, i) => String(startYear + i));
   const yearExpected = Number(amort.monthlyAmount) * 12;
+  const monthlyExpected = Number(amort.monthlyAmount);
+  const curYearMonths = Array.from({ length: 12 }, (_, m) => `${curYear}-${String(m + 1).padStart(2, '0')}`);
 
   function yearInfo(yr) {
     const rel = data.payments.filter(p => p.parentId === amort.amortizationId && String(p.period).slice(0, 4) === yr);
@@ -1170,6 +1201,18 @@ function AmortizationDetailSheet({ amort, data, onClose, onEdit }) {
         })}
       </div>
 
+      <SectionLabel>Monthly · {curYear} · tap to record</SectionLabel>
+      <div style={detailCard}>
+        {curYearMonths.map((period, i) => {
+          const paid = getMonthPaid(amort.amortizationId, period, data.payments);
+          return (
+            <ScheduleRow key={period} period={periodLabel(period)} status={getMonthStatus(amort.amortizationId, period, data.payments)}
+              paid={paid} expected={monthlyExpected} last={i === 11}
+              onClick={() => onAddPayment({ entryType: 'amortization_payment', linkedId: amort.amortizationId, period, amount: paid != null ? paid : monthlyExpected })} />
+          );
+        })}
+      </div>
+
       <div style={{ padding: '0 20px 0' }}>
         <button style={{ ...btnNavy, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }} className="pressable" onClick={() => onEdit(amort)}>
           <Icon name="edit" size={18} stroke={2.2} /> Edit loan
@@ -1205,7 +1248,7 @@ function InstallmentCard({ inst, data, setData, onEdit, onOpen }) {
       setData(d => ({ ...d, entries: [...d.entries, entry] }));
       api.post({ type: 'append_entry', ...entry });
     }
-    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    setTimeout(() => syncData(setData), 1500);
     setShowMove(false);
   }
 
@@ -1295,7 +1338,7 @@ function AmortizationCard({ amort, data, setData, onEdit, onOpen }) {
       setData(d => ({ ...d, entries: [...d.entries, entry] }));
       api.post({ type: 'append_entry', ...entry });
     }
-    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    setTimeout(() => syncData(setData), 1500);
     setShowMove(false);
   }
 
@@ -1477,6 +1520,7 @@ export default function App() {
   const [editEntry, setEditEntry] = useState(null);
   const [editItem, setEditItem] = useState(null);
   const [groupTarget, setGroupTarget] = useState(null);
+  const [prefill, setPrefill] = useState(null);
 
   useEffect(() => {
     const s = getSettings();
@@ -1485,18 +1529,19 @@ export default function App() {
       setLoading(false);
       return;
     }
-    api.get('all').then(r => { if (r && !r.error) setData(r); setLoading(false); }).catch(() => setLoading(false));
+    api.get('all').then(r => { if (r && !r.error) setData(normalizeData(r)); setLoading(false); }).catch(() => setLoading(false));
   }, []);
 
-  function openEditEntry(entry) { setEditEntry(entry); setSheet('editEntry'); }
-  function openAddEntry() { setEditEntry(null); setSheet('addEntry'); }
+  function openEditEntry(entry) { setEditEntry(entry); setPrefill(null); setSheet('editEntry'); }
+  function openAddEntry() { setEditEntry(null); setPrefill(null); setSheet('addEntry'); }
   function openEditInstallment(inst) { setEditItem(inst); setSheet('editInstallment'); }
   function openEditAmortization(amort) { setEditItem(amort); setSheet('editAmortization'); }
   function openInstallmentDetail(inst) { setEditItem(inst); setSheet('installmentDetail'); }
   function openAmortizationDetail(amort) { setEditItem(amort); setSheet('amortizationDetail'); }
+  function openAddPayment(pf) { setEditEntry(null); setPrefill(pf); setSheet('addEntry'); }
   function openGroupActions(group) { setGroupTarget(group); setSheet('group'); }
   function openSettings() { setSheet('settings'); }
-  function closeSheet() { setSheet(null); setEditEntry(null); setEditItem(null); setGroupTarget(null); }
+  function closeSheet() { setSheet(null); setEditEntry(null); setEditItem(null); setGroupTarget(null); setPrefill(null); }
 
   return (
     <div style={{ background: C.bg, minHeight: '100dvh', display: 'flex', justifyContent: 'center' }}>
@@ -1519,14 +1564,14 @@ export default function App() {
 
         <BottomNav tab={tab} setTab={setTab} />
 
-        {(sheet === 'addEntry') && <AddEntrySheet data={data} setData={setData} initEntry={editEntry} onClose={closeSheet} />}
-        {sheet === 'editEntry' && editEntry && <EditMoveSheet entry={editEntry} data={data} setData={setData} onClose={closeSheet} onEdit={entry => { setEditEntry(entry); setSheet('addEntry'); }} />}
+        {(sheet === 'addEntry') && <AddEntrySheet data={data} setData={setData} initEntry={editEntry} prefill={prefill} onClose={closeSheet} />}
+        {sheet === 'editEntry' && editEntry && <EditMoveSheet entry={editEntry} data={data} setData={setData} onClose={closeSheet} onEdit={entry => { setEditEntry(entry); setPrefill(null); setSheet('addEntry'); }} />}
         {sheet === 'addInstallment' && <AddInstallmentSheet data={data} setData={setData} onClose={closeSheet} />}
         {sheet === 'editInstallment' && editItem && <AddInstallmentSheet data={data} setData={setData} init={editItem} onClose={closeSheet} />}
-        {sheet === 'installmentDetail' && editItem && <InstallmentDetailSheet inst={editItem} data={data} onClose={closeSheet} onEdit={() => setSheet('editInstallment')} />}
+        {sheet === 'installmentDetail' && editItem && <InstallmentDetailSheet inst={editItem} data={data} onClose={closeSheet} onEdit={() => setSheet('editInstallment')} onAddPayment={openAddPayment} />}
         {sheet === 'addAmortization' && <AddAmortizationSheet data={data} setData={setData} onClose={closeSheet} />}
         {sheet === 'editAmortization' && editItem && <AddAmortizationSheet data={data} setData={setData} init={editItem} onClose={closeSheet} />}
-        {sheet === 'amortizationDetail' && editItem && <AmortizationDetailSheet amort={editItem} data={data} onClose={closeSheet} onEdit={() => setSheet('editAmortization')} />}
+        {sheet === 'amortizationDetail' && editItem && <AmortizationDetailSheet amort={editItem} data={data} onClose={closeSheet} onEdit={() => setSheet('editAmortization')} onAddPayment={openAddPayment} />}
         {sheet === 'group' && groupTarget && <GroupSheet group={groupTarget} data={data} setData={setData} onClose={closeSheet} />}
         {sheet === 'settings' && <SettingsSheet onClose={closeSheet} />}
       </div>
