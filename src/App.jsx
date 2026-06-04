@@ -78,27 +78,22 @@ function generateMonths(startDate, totalMonths) {
   if (!start) return [];
   return Array.from({ length: Number(totalMonths) }, (_, i) => addMonths(start, i));
 }
-function isoDate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function monthBounds(cm) {
+  const [y, m] = cm.split('-').map(Number);
+  const from = `${cm}-01`;
+  const to = `${cm}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+  return { from, to };
 }
-function weekRange(weekStartsOn) {
-  const today = new Date();
-  const dow = today.getDay(); // 0 = Sun … 6 = Sat
-  const diff = weekStartsOn === 'sun' ? dow : (dow + 6) % 7;
-  const start = new Date(today); start.setDate(today.getDate() - diff);
-  const end = new Date(start); end.setDate(start.getDate() + 6);
-  return { from: isoDate(start), to: isoDate(end) };
-}
-function dayLabel(d) {
-  const [y, m, day] = d.split('-').map(Number);
-  return new Date(y, m - 1, day).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
-}
-function weekLabel(from, to) {
-  if (!from) return '';
-  if (!to) return `Week of ${dayLabel(from)}`;
-  const sameMonth = from.slice(0, 7) === to.slice(0, 7);
-  const toL = sameMonth ? String(Number(to.slice(8, 10))) : dayLabel(to);
-  return `Week of ${dayLabel(from)}–${toL}`;
+// Auto group label: "YYYY-MM #N" — N increments per month, unique across years.
+function nextGroupLabel(groups) {
+  const prefix = currentMonthStr();
+  let max = 0;
+  const re = new RegExp('^' + prefix + ' #(\\d+)');
+  groups.forEach(g => {
+    const m = String(g.label || '').match(re);
+    if (m) max = Math.max(max, Number(m[1]));
+  });
+  return `${prefix} #${max + 1}`;
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -133,20 +128,20 @@ const api = {
 
 const MOCK = {
   groups: [
-    { groupId: 'G_2', label: 'Week of Jun 2–8', dateFrom: '2026-06-02', dateTo: '2026-06-08', createdAt: '2026-06-02' },
-    { groupId: 'G_3', label: 'Week of May 26–Jun 1', dateFrom: '2026-05-26', dateTo: '2026-06-01', createdAt: '2026-05-26' },
-    { groupId: 'G_4', label: 'Week of May 19–25', dateFrom: '2026-05-19', dateTo: '2026-05-25', createdAt: '2026-05-19' },
+    { groupId: 'G_2', label: '2026-06 #1', dateFrom: '2026-06-01', dateTo: '2026-06-30', createdAt: '2026-06-02' },
+    { groupId: 'G_3', label: '2026-05 #2', dateFrom: '2026-05-01', dateTo: '2026-05-31', createdAt: '2026-05-26' },
+    { groupId: 'G_4', label: '2026-05 #1', dateFrom: '2026-05-01', dateTo: '2026-05-31', createdAt: '2026-05-19' },
   ],
   entries: [
-    { entryId: 'E_2',  groupId: 'G_2', store: 'SM Supermarket',  item: 'Groceries',         amount: 1850,  status: 'unpaid',  entryType: 'transaction',           linkedId: '', createdAt: '2026-06-03', updatedAt: '2026-06-03' },
-    { entryId: 'E_3',  groupId: 'G_2', store: 'Meralco',         item: 'Electric bill',      amount: 3200,  status: 'paid',    entryType: 'transaction',           linkedId: '', createdAt: '2026-06-03', updatedAt: '2026-06-03' },
+    { entryId: 'E_2',  groupId: 'G_2', store: 'SM Supermarket',  item: 'Groceries',         amount: 1850,  status: 'unpaid',  entryType: 'transaction',           linkedId: '', amountPaid: 0,    createdAt: '2026-06-03', updatedAt: '2026-06-03' },
+    { entryId: 'E_3',  groupId: 'G_2', store: 'Meralco',         item: 'Electric bill',      amount: 3200,  status: 'paid',    entryType: 'transaction',           linkedId: '', amountPaid: 3200, createdAt: '2026-06-03', updatedAt: '2026-06-03' },
     { entryId: 'E_4',  groupId: 'G_2', store: '2026-06',         item: 'Aircon 1.5hp',       amount: 2500,  status: 'paid',    entryType: 'installment_payment',   linkedId: 'I_2', createdAt: '2026-06-04', updatedAt: '2026-06-04' },
     { entryId: 'E_5',  groupId: 'G_2', store: '2026-06',         item: 'House & lot',        amount: 8500,  status: 'paid',    entryType: 'amortization_payment',  linkedId: 'A_2', createdAt: '2026-06-04', updatedAt: '2026-06-04' },
-    { entryId: 'E_6',  groupId: 'G_3', store: 'Jollibee',        item: 'Team lunch',         amount: 640,   status: 'paid',    entryType: 'transaction',           linkedId: '', createdAt: '2026-05-28', updatedAt: '2026-05-28' },
-    { entryId: 'E_7',  groupId: 'G_3', store: 'Grab',            item: 'Rides',              amount: 420,   status: 'partial', entryType: 'transaction',           linkedId: '', createdAt: '2026-05-30', updatedAt: '2026-05-30' },
+    { entryId: 'E_6',  groupId: 'G_3', store: 'Jollibee',        item: 'Team lunch',         amount: 640,   status: 'paid',    entryType: 'transaction',           linkedId: '', amountPaid: 640,  createdAt: '2026-05-28', updatedAt: '2026-05-28' },
+    { entryId: 'E_7',  groupId: 'G_3', store: 'Grab',            item: 'Rides',              amount: 420,   status: 'partial', entryType: 'transaction',           linkedId: '', amountPaid: 200,  createdAt: '2026-05-30', updatedAt: '2026-05-30' },
     { entryId: 'E_8',  groupId: 'G_3', store: '2026-05',         item: 'Aircon 1.5hp',       amount: 2500,  status: 'paid',    entryType: 'installment_payment',   linkedId: 'I_2', createdAt: '2026-05-29', updatedAt: '2026-05-29' },
-    { entryId: 'E_9',  groupId: 'G_4', store: 'PLDT',            item: 'Internet bill',      amount: 1599,  status: 'paid',    entryType: 'transaction',           linkedId: '', createdAt: '2026-05-20', updatedAt: '2026-05-20' },
-    { entryId: 'E_10', groupId: 'G_4', store: 'Cousin Ana',      item: 'Loan repayment',     amount: 5000,  status: 'unpaid',  entryType: 'transaction',           linkedId: '', createdAt: '2026-05-21', updatedAt: '2026-05-21' },
+    { entryId: 'E_9',  groupId: 'G_4', store: 'PLDT',            item: 'Internet bill',      amount: 1599,  status: 'paid',    entryType: 'transaction',           linkedId: '', amountPaid: 1599, createdAt: '2026-05-20', updatedAt: '2026-05-20' },
+    { entryId: 'E_10', groupId: 'G_4', store: 'Cousin Ana',      item: 'Loan repayment',     amount: 5000,  status: 'unpaid',  entryType: 'transaction',           linkedId: '', amountPaid: 0,    createdAt: '2026-05-21', updatedAt: '2026-05-21' },
     { entryId: 'E_11', groupId: 'G_4', store: '2026-04',         item: 'Aircon 1.5hp',       amount: 1200,  status: 'partial', entryType: 'installment_payment',   linkedId: 'I_2', createdAt: '2026-05-22', updatedAt: '2026-05-22' },
   ],
   installments: [
@@ -254,7 +249,10 @@ function amortizationProgress(amort, payments) {
 function summaryStats(data) {
   const { entries, payments, installments, amortizations } = data;
   const cm = currentMonthStr();
-  const outstanding = entries.filter(e => e.status === 'unpaid' || e.status === 'partial').reduce((s, e) => s + Number(e.amount || 0), 0);
+  const outstanding = entries.filter(e => e.status === 'unpaid' || e.status === 'partial').reduce((s, e) => {
+    const paid = (e.amountPaid === '' || e.amountPaid == null) ? 0 : Number(e.amountPaid);
+    return s + Math.max(0, Number(e.amount || 0) - paid);
+  }, 0);
   const paidThisMonth = entries.filter(e => e.status === 'paid' && String(e.createdAt || '').slice(0, 7) === cm).reduce((s, e) => s + Number(e.amount || 0), 0);
   const byType = {
     transactions: entries.filter(e => e.entryType === 'transaction').reduce((s, e) => s + Number(e.amount || 0), 0),
@@ -449,19 +447,12 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
   const [item, setItem] = useState(initEntry?.entryType === 'transaction' ? (initEntry?.item || '') : '');
   const [amount, setAmount] = useState(initEntry ? String(initEntry.amount) : '');
   const [status, setStatus] = useState(initEntry?.status || 'unpaid');
+  const [txPaid, setTxPaid] = useState(initEntry?.entryType === 'transaction' && initEntry?.status === 'partial' ? String(initEntry?.amountPaid ?? '') : '');
   const [groupId, setGroupId] = useState(initEntry?.groupId || '');
   const [linkedId, setLinkedId] = useState(initEntry?.linkedId || '');
   const [period, setPeriod] = useState(currentMonthStr());
   const [newGroup, setNewGroup] = useState(false);
-  const [week] = useState(() => weekRange(getSettings().weekStartsOn || 'mon'));
-  const [newLabel, setNewLabel] = useState(() => weekLabel(week.from, week.to));
-  const [labelEdited, setLabelEdited] = useState(false);
-  const [newFrom, setNewFrom] = useState(week.from);
-  const [newTo, setNewTo] = useState(week.to);
-
-  function changeFrom(v) { setNewFrom(v); if (!labelEdited) setNewLabel(weekLabel(v, newTo)); }
-  function changeTo(v) { setNewTo(v); if (!labelEdited) setNewLabel(weekLabel(newFrom, v)); }
-  function changeLabel(v) { setNewLabel(v); setLabelEdited(true); }
+  const [newLabel, setNewLabel] = useState(() => nextGroupLabel(data.groups));
 
   useEffect(() => {
     if (type === 'installment_payment' && linkedId) {
@@ -482,22 +473,33 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
     else { setGroupId(val); setNewGroup(false); }
   }
 
+  // Transaction amount/status — keep paid amount in sync with the total.
+  function changeAmount(v) { setAmount(v); if (status === 'paid') setTxPaid(v); }
+  function changeStatus(v) {
+    setStatus(v);
+    if (v === 'paid') setTxPaid(amount);
+    else if (v === 'unpaid') setTxPaid('0');
+  }
+
   function handleSave() {
     const today = todayStr();
     let finalGroupId = groupId;
 
     if (newGroup && newLabel) {
       const tempId = 'G_tmp_' + Date.now();
-      const grp = { groupId: tempId, label: newLabel, dateFrom: newFrom, dateTo: newTo, createdAt: today };
+      const mb = monthBounds(currentMonthStr());
+      const grp = { groupId: tempId, label: newLabel, dateFrom: mb.from, dateTo: mb.to, createdAt: today };
       setData(d => ({ ...d, groups: [grp, ...d.groups] }));
       api.post({ type: 'append_group', ...grp });
       finalGroupId = tempId;
     }
 
     if (type === 'transaction') {
+      const total = Number(amount);
+      const paid = status === 'paid' ? total : status === 'unpaid' ? 0 : Number(txPaid || 0);
       const entry = {
         entryId: initEntry ? initEntry.entryId : 'E_tmp_' + Date.now(),
-        groupId: finalGroupId, store, item, amount: Number(amount), status,
+        groupId: finalGroupId, store, item, amount: total, status, amountPaid: paid,
         entryType: 'transaction', linkedId: '', createdAt: today, updatedAt: today,
       };
       if (initEntry) {
@@ -578,14 +580,22 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
       {type === 'transaction' && <>
         <Field label="Store or person"><input style={inp} value={store} onChange={e => setStore(e.target.value)} placeholder="e.g. SM Supermarket" /></Field>
         <Field label="Item or description"><input style={inp} value={item} onChange={e => setItem(e.target.value)} placeholder="e.g. Groceries" /></Field>
-        <Field label="Amount ₱"><input style={inp} type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" /></Field>
+        <Field label="Amount ₱"><input style={inp} type="number" value={amount} onChange={e => changeAmount(e.target.value)} placeholder="0.00" /></Field>
         <Field label="Status">
-          <select style={inp} value={status} onChange={e => setStatus(e.target.value)}>
+          <select style={inp} value={status} onChange={e => changeStatus(e.target.value)}>
             <option value="unpaid">Unpaid</option>
             <option value="paid">Paid</option>
             <option value="partial">Partial</option>
           </select>
         </Field>
+        {status === 'partial' && (
+          <Field label="Amount paid ₱">
+            <input style={inp} type="number" value={txPaid} onChange={e => setTxPaid(e.target.value)} placeholder="0.00" />
+            {amount && txPaid !== '' && (
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>Remaining: <span style={{ fontWeight: 700, color: C.unpaidText }}>{fmt(Math.max(0, Number(amount) - Number(txPaid)))}</span></div>
+            )}
+          </Field>
+        )}
       </>}
 
       {type === 'installment_payment' && <>
@@ -617,11 +627,9 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
           <option value="__new__">+ New group</option>
         </select>
       </Field>
-      {newGroup && <>
-        <Field label="Date from"><input style={inp} type="date" value={newFrom} onChange={e => changeFrom(e.target.value)} /></Field>
-        <Field label="Date to"><input style={inp} type="date" value={newTo} onChange={e => changeTo(e.target.value)} /></Field>
-        <Field label="Group label"><input style={inp} value={newLabel} onChange={e => changeLabel(e.target.value)} placeholder="e.g. Week of Jun 9" /></Field>
-      </>}
+      {newGroup && (
+        <Field label="Group label"><input style={inp} value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="e.g. 2026-06 #1" /></Field>
+      )}
 
       <div style={{ padding: '6px 20px 0' }}>
         <button style={btnNavy} className="pressable" onClick={handleSave}>{initEntry ? 'Save changes' : 'Save entry'}</button>
@@ -749,7 +757,7 @@ function EditMoveSheet({ entry, data, setData, onClose, onEdit }) {
         </div>
       </div>
 
-      {row('edit', 'Edit entry', C.accentText, C.accentBg, () => { onEdit(entry); onClose(); })}
+      {row('edit', 'Edit entry', C.accentText, C.accentBg, () => onEdit(entry))}
       {!showMove && row('move', 'Move to another group', C.paidText, C.paidBg, () => setShowMove(true))}
       {showMove && <MoveGroupPicker groups={data.groups} onPick={handleMove} />}
       {!confirmDelete && row('trash', 'Delete entry', C.unpaidText, C.unpaidBg, () => setConfirmDelete(true), true)}
@@ -796,12 +804,6 @@ function SettingsSheet({ onClose }) {
       </Field>
       <Field label="API Key (optional)">
         <input style={inp} value={s.apiKey || ''} onChange={e => upd('apiKey', e.target.value)} placeholder="Leave blank if not set" />
-      </Field>
-      <Field label="Week starts on">
-        <select style={inp} value={s.weekStartsOn || 'mon'} onChange={e => upd('weekStartsOn', e.target.value)}>
-          <option value="mon">Monday</option>
-          <option value="sun">Sunday</option>
-        </select>
       </Field>
       <div style={{ padding: '6px 20px 16px' }}>
         <button style={{ ...btnNavy, opacity: testing ? 0.6 : 1 }} className="pressable" onClick={testConn} disabled={testing}>
