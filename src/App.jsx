@@ -73,6 +73,15 @@ function monthLabel(yyyymm) {
   const [y, m] = yyyymm.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString('en-PH', { month: 'short', year: '2-digit' });
 }
+function periodLabel(yyyymm) {
+  const [y, m] = yyyymm.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = String(iso).split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 function generateMonths(startDate, totalMonths) {
   const start = dateToMonth(startDate);
   if (!start) return [];
@@ -133,16 +142,16 @@ const MOCK = {
     { groupId: 'G_4', label: '2026-05 #1', dateFrom: '2026-05-01', dateTo: '2026-05-31', createdAt: '2026-05-19' },
   ],
   entries: [
-    { entryId: 'E_2',  groupId: 'G_2', store: 'SM Supermarket',  item: 'Groceries',         amount: 1850,  status: 'unpaid',  entryType: 'transaction',           linkedId: '', amountPaid: 0,    createdAt: '2026-06-03', updatedAt: '2026-06-03' },
-    { entryId: 'E_3',  groupId: 'G_2', store: 'Meralco',         item: 'Electric bill',      amount: 3200,  status: 'paid',    entryType: 'transaction',           linkedId: '', amountPaid: 3200, createdAt: '2026-06-03', updatedAt: '2026-06-03' },
-    { entryId: 'E_4',  groupId: 'G_2', store: '2026-06',         item: 'Aircon 1.5hp',       amount: 2500,  status: 'paid',    entryType: 'installment_payment',   linkedId: 'I_2', createdAt: '2026-06-04', updatedAt: '2026-06-04' },
-    { entryId: 'E_5',  groupId: 'G_2', store: '2026-06',         item: 'House & lot',        amount: 8500,  status: 'paid',    entryType: 'amortization_payment',  linkedId: 'A_2', createdAt: '2026-06-04', updatedAt: '2026-06-04' },
-    { entryId: 'E_6',  groupId: 'G_3', store: 'Jollibee',        item: 'Team lunch',         amount: 640,   status: 'paid',    entryType: 'transaction',           linkedId: '', amountPaid: 640,  createdAt: '2026-05-28', updatedAt: '2026-05-28' },
-    { entryId: 'E_7',  groupId: 'G_3', store: 'Grab',            item: 'Rides',              amount: 420,   status: 'partial', entryType: 'transaction',           linkedId: '', amountPaid: 200,  createdAt: '2026-05-30', updatedAt: '2026-05-30' },
-    { entryId: 'E_8',  groupId: 'G_3', store: '2026-05',         item: 'Aircon 1.5hp',       amount: 2500,  status: 'paid',    entryType: 'installment_payment',   linkedId: 'I_2', createdAt: '2026-05-29', updatedAt: '2026-05-29' },
-    { entryId: 'E_9',  groupId: 'G_4', store: 'PLDT',            item: 'Internet bill',      amount: 1599,  status: 'paid',    entryType: 'transaction',           linkedId: '', amountPaid: 1599, createdAt: '2026-05-20', updatedAt: '2026-05-20' },
-    { entryId: 'E_10', groupId: 'G_4', store: 'Cousin Ana',      item: 'Loan repayment',     amount: 5000,  status: 'unpaid',  entryType: 'transaction',           linkedId: '', amountPaid: 0,    createdAt: '2026-05-21', updatedAt: '2026-05-21' },
-    { entryId: 'E_11', groupId: 'G_4', store: '2026-04',         item: 'Aircon 1.5hp',       amount: 1200,  status: 'partial', entryType: 'installment_payment',   linkedId: 'I_2', createdAt: '2026-05-22', updatedAt: '2026-05-22' },
+    { entryId: 'E_2',  groupId: 'G_2', store: 'SM Supermarket',  item: 'Groceries',         amount: 1850,  status: 'unpaid',  entryType: 'transaction',           linkedId: '', amountPaid: 0,    createdAt: '2026-06-03' },
+    { entryId: 'E_3',  groupId: 'G_2', store: 'Meralco',         item: 'Electric bill',      amount: 3200,  status: 'paid',    entryType: 'transaction',           linkedId: '', amountPaid: 3200, createdAt: '2026-06-03' },
+    { entryId: 'E_4',  groupId: 'G_2', store: '2026-06',         item: 'Aircon 1.5hp',       amount: 2500,  status: 'paid',    entryType: 'installment_payment',   linkedId: 'I_2', createdAt: '2026-06-04' },
+    { entryId: 'E_5',  groupId: 'G_2', store: '2026-06',         item: 'House & lot',        amount: 8500,  status: 'paid',    entryType: 'amortization_payment',  linkedId: 'A_2', createdAt: '2026-06-04' },
+    { entryId: 'E_6',  groupId: 'G_3', store: 'Jollibee',        item: 'Team lunch',         amount: 640,   status: 'paid',    entryType: 'transaction',           linkedId: '', amountPaid: 640,  createdAt: '2026-05-28' },
+    { entryId: 'E_7',  groupId: 'G_3', store: 'Grab',            item: 'Rides',              amount: 420,   status: 'partial', entryType: 'transaction',           linkedId: '', amountPaid: 200,  createdAt: '2026-05-30' },
+    { entryId: 'E_8',  groupId: 'G_3', store: '2026-05',         item: 'Aircon 1.5hp',       amount: 2500,  status: 'paid',    entryType: 'installment_payment',   linkedId: 'I_2', createdAt: '2026-05-29' },
+    { entryId: 'E_9',  groupId: 'G_4', store: 'PLDT',            item: 'Internet bill',      amount: 1599,  status: 'paid',    entryType: 'transaction',           linkedId: '', amountPaid: 1599, createdAt: '2026-05-20' },
+    { entryId: 'E_10', groupId: 'G_4', store: 'Cousin Ana',      item: 'Loan repayment',     amount: 5000,  status: 'unpaid',  entryType: 'transaction',           linkedId: '', amountPaid: 0,    createdAt: '2026-05-21' },
+    { entryId: 'E_11', groupId: 'G_4', store: '2026-04',         item: 'Aircon 1.5hp',       amount: 1200,  status: 'partial', entryType: 'installment_payment',   linkedId: 'I_2', createdAt: '2026-05-22' },
   ],
   installments: [
     { installmentId: 'I_2', name: 'Aircon 1.5hp',    source: 'Abenson',         monthlyAmount: 2500, totalMonths: 12, startDate: '2026-01-01', createdAt: '2026-01-01' },
@@ -500,7 +509,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
       const entry = {
         entryId: initEntry ? initEntry.entryId : 'E_tmp_' + Date.now(),
         groupId: finalGroupId, store, item, amount: total, status, amountPaid: paid,
-        entryType: 'transaction', linkedId: '', createdAt: today, updatedAt: today,
+        entryType: 'transaction', linkedId: '', createdAt: today,
       };
       if (initEntry) {
         setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === initEntry.entryId ? entry : e) }));
@@ -537,7 +546,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry }) {
       const entry = {
         entryId: existingEntry ? existingEntry.entryId : 'E_tmp_' + Date.now(),
         groupId: finalGroupId, store: period, item: parentName,
-        amount: amtPaid, status: derivedStatus, entryType: type, linkedId, createdAt: today, updatedAt: today,
+        amount: amtPaid, status: derivedStatus, entryType: type, linkedId, createdAt: today,
       };
       if (existingEntry) {
         setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === existingEntry.entryId ? entry : e) }));
@@ -725,7 +734,7 @@ function EditMoveSheet({ entry, data, setData, onClose, onEdit }) {
   const group = data.groups.find(g => g.groupId === entry.groupId);
 
   function handleMove(newGroupId) {
-    const updated = { ...entry, groupId: newGroupId, updatedAt: todayStr() };
+    const updated = { ...entry, groupId: newGroupId };
     setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === entry.entryId ? updated : e) }));
     api.post({ type: 'move_entry', rowId: entry.entryId, groupId: newGroupId });
     setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
@@ -982,9 +991,181 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
   );
 }
 
+// ── Detail sheet primitives ───────────────────────────────────────────────────
+
+function DetailRow({ label, value, last }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: last ? 'none' : `1px solid ${C.divider}` }}>
+      <span style={{ fontSize: 13, color: C.sub }}>{label}</span>
+      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, textAlign: 'right' }}>{value}</span>
+    </div>
+  );
+}
+function SectionLabel({ children }) {
+  return <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4, margin: '2px 20px 9px' }}>{children}</div>;
+}
+const detailCard = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, margin: '0 16px 18px', overflow: 'hidden' };
+
+function DetailHeader({ icon, fg, bg, title, sub, amount, amountColor, amountSub }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 13, margin: '0 16px 16px', padding: '14px 16px', background: C.bg, borderRadius: 16 }}>
+      <IconTile name={icon} fg={fg} bg={bg} size={46} iconSize={22} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 17, color: C.ink, letterSpacing: -0.3 }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 1 }}>{sub}</div>
+      </div>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: amountColor }}>{amount}</div>
+        <div style={{ fontSize: 10.5, color: C.muted }}>{amountSub}</div>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleRow({ period, status, paid, expected, last }) {
+  const cfg = {
+    full:     ['Paid', C.paidText, C.paidBg],
+    partial:  ['Partial', C.partialText, C.partialBg],
+    overdue:  ['Overdue', C.unpaidText, C.unpaidBg],
+    upcoming: ['Upcoming', C.hint, '#f4f4f9'],
+  }[status];
+  const shownPaid = (status === 'full' || status === 'partial') && paid != null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', padding: '11px 16px', borderBottom: last ? 'none' : `1px solid ${C.divider}` }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{period}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{shownPaid ? `${fmt(paid)} of ${fmt(expected)}` : `${fmt(expected)} due`}</div>
+      </div>
+      <span style={badgeStyle(cfg[1], cfg[2])}>{cfg[0]}</span>
+    </div>
+  );
+}
+
+// ── Installment Detail Sheet ──────────────────────────────────────────────────
+
+function InstallmentDetailSheet({ inst, data, onClose, onEdit }) {
+  const prog = installmentProgress(inst, data.payments);
+  const months = generateMonths(inst.startDate, Number(inst.totalMonths));
+  const expected = Number(inst.monthlyAmount);
+  return (
+    <Sheet onClose={onClose} title="Installment details">
+      <DetailHeader icon="repeat" fg={C.paid} bg={C.paidBg} title={inst.name} sub={inst.source}
+        amount={fmt(prog.paid)} amountColor={prog.paid > 0 ? C.paid : C.unpaid} amountSub={`of ${fmt(prog.total)}`} />
+
+      <div style={{ margin: '0 16px 6px' }}>
+        <div style={{ height: 7, background: C.divider, borderRadius: 99, overflow: 'hidden' }}>
+          <div style={{ width: prog.pct + '%', height: '100%', background: C.paid, borderRadius: 99 }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', margin: '7px 2px 16px', fontSize: 11.5, color: C.muted, fontWeight: 600 }}>
+          <span>{prog.paidMonths} of {prog.totalMonths} months paid</span>
+          <span>{Math.round(prog.pct)}%</span>
+        </div>
+      </div>
+
+      <SectionLabel>Details</SectionLabel>
+      <div style={detailCard}>
+        <DetailRow label="Source / store" value={inst.source} />
+        <DetailRow label="Monthly amount" value={fmt(inst.monthlyAmount)} />
+        <DetailRow label="Total months" value={inst.totalMonths} />
+        <DetailRow label="Total amount" value={fmt(prog.total)} />
+        <DetailRow label="Remaining" value={fmt(Math.max(0, prog.total - prog.paid))} />
+        <DetailRow label="Start date" value={fmtDate(inst.startDate)} />
+        <DetailRow label="Added" value={fmtDate(inst.createdAt)} last />
+      </div>
+
+      <SectionLabel>Payment schedule</SectionLabel>
+      <div style={detailCard}>
+        {months.map((period, i) => (
+          <ScheduleRow key={period} period={periodLabel(period)} status={getMonthStatus(inst.installmentId, period, data.payments)}
+            paid={getMonthPaid(inst.installmentId, period, data.payments)} expected={expected} last={i === months.length - 1} />
+        ))}
+      </div>
+
+      <div style={{ padding: '0 20px 0' }}>
+        <button style={{ ...btnNavy, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }} className="pressable" onClick={() => onEdit(inst)}>
+          <Icon name="edit" size={18} stroke={2.2} /> Edit installment
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Amortization Detail Sheet ─────────────────────────────────────────────────
+
+function AmortizationDetailSheet({ amort, data, onClose, onEdit }) {
+  const prog = amortizationProgress(amort, data.payments);
+  const curYear = String(new Date().getFullYear());
+  const startYear = Number((amort.startDate || '').slice(0, 4));
+  const years = Array.from({ length: Number(amort.totalYears) }, (_, i) => String(startYear + i));
+  const yearExpected = Number(amort.monthlyAmount) * 12;
+
+  function yearInfo(yr) {
+    const rel = data.payments.filter(p => p.parentId === amort.amortizationId && String(p.period).slice(0, 4) === yr);
+    const paid = rel.reduce((s, p) => s + Number(p.amountPaid || 0), 0);
+    const fullMonths = rel.filter(p => Number(p.amountPaid) >= Number(p.expectedAmount) && Number(p.expectedAmount) > 0).length;
+    let status;
+    if (Number(yr) < Number(curYear)) status = fullMonths === 12 ? 'done' : 'past';
+    else status = yr === curYear ? 'active' : 'upcoming';
+    return { paid, status };
+  }
+
+  const sc = { done: ['Done', C.paidText, C.paidBg], active: ['Active', C.accentText, C.accentBg], upcoming: ['Upcoming', C.hint, '#f4f4f9'], past: ['Behind', C.unpaidText, C.unpaidBg] };
+
+  return (
+    <Sheet onClose={onClose} title="Loan details">
+      <DetailHeader icon="bank" fg={C.accent} bg={C.accentBg} title={amort.name} sub={amort.lender}
+        amount={fmt(prog.paidAmount)} amountColor={C.accent} amountSub={`of ${fmt(amort.principalAmount)}`} />
+
+      <div style={{ margin: '0 16px 6px' }}>
+        <div style={{ height: 7, background: C.divider, borderRadius: 99, overflow: 'hidden' }}>
+          <div style={{ width: prog.pct + '%', height: '100%', background: C.accent, borderRadius: 99 }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', margin: '7px 2px 16px', fontSize: 11.5, color: C.muted, fontWeight: 600 }}>
+          <span>Year {prog.paidYears + 1} of {prog.totalYears}</span>
+          <span>{Math.round(prog.pct)}%</span>
+        </div>
+      </div>
+
+      <SectionLabel>Details</SectionLabel>
+      <div style={detailCard}>
+        <DetailRow label="Lender" value={amort.lender} />
+        <DetailRow label="Monthly amount" value={fmt(amort.monthlyAmount)} />
+        <DetailRow label="Term" value={`${amort.totalYears} years`} />
+        <DetailRow label="Principal" value={fmt(amort.principalAmount)} />
+        <DetailRow label="Paid to date" value={fmt(prog.paidAmount)} />
+        <DetailRow label="Remaining" value={fmt(prog.remaining)} />
+        <DetailRow label="Start date" value={fmtDate(amort.startDate)} last />
+      </div>
+
+      <SectionLabel>Yearly breakdown</SectionLabel>
+      <div style={detailCard}>
+        {years.map((yr, i) => {
+          const info = yearInfo(yr);
+          const c = sc[info.status];
+          return (
+            <div key={yr} style={{ display: 'flex', alignItems: 'center', padding: '11px 16px', borderBottom: i === years.length - 1 ? 'none' : `1px solid ${C.divider}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{yr}</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{fmt(info.paid)} of {fmt(yearExpected)}</div>
+              </div>
+              <span style={badgeStyle(c[1], c[2])}>{c[0]}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ padding: '0 20px 0' }}>
+        <button style={{ ...btnNavy, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }} className="pressable" onClick={() => onEdit(amort)}>
+          <Icon name="edit" size={18} stroke={2.2} /> Edit loan
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
 // ── Installment Card ──────────────────────────────────────────────────────────
 
-function InstallmentCard({ inst, data, setData, onEdit }) {
+function InstallmentCard({ inst, data, setData, onEdit, onOpen }) {
   const [showMove, setShowMove] = useState(false);
   const cm = currentMonthStr();
   const months = generateMonths(inst.startDate, Number(inst.totalMonths));
@@ -1000,11 +1181,11 @@ function InstallmentCard({ inst, data, setData, onEdit }) {
     const expected = Number(inst.monthlyAmount);
     const derivedStatus = amtPaid >= expected && expected > 0 ? 'paid' : amtPaid > 0 ? 'partial' : 'unpaid';
     if (existingEntry) {
-      const updated = { ...existingEntry, groupId: newGroupId, updatedAt: today };
+      const updated = { ...existingEntry, groupId: newGroupId };
       setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === existingEntry.entryId ? updated : e) }));
       api.post({ type: 'move_entry', rowId: existingEntry.entryId, groupId: newGroupId });
     } else {
-      const entry = { entryId: 'E_tmp_' + Date.now(), groupId: newGroupId, store: cm, item: inst.name, amount: amtPaid || expected, status: derivedStatus, entryType: 'installment_payment', linkedId: inst.installmentId, createdAt: today, updatedAt: today };
+      const entry = { entryId: 'E_tmp_' + Date.now(), groupId: newGroupId, store: cm, item: inst.name, amount: amtPaid || expected, status: derivedStatus, entryType: 'installment_payment', linkedId: inst.installmentId, createdAt: today };
       setData(d => ({ ...d, entries: [...d.entries, entry] }));
       api.post({ type: 'append_entry', ...entry });
     }
@@ -1015,15 +1196,17 @@ function InstallmentCard({ inst, data, setData, onEdit }) {
   return (
     <div style={cardStyle}>
       <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px 12px', gap: 12 }}>
-        <IconTile name="repeat" fg={C.paid} bg={C.paidBg} size={42} iconSize={20} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>{inst.name}</div>
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{inst.source} · {fmt(inst.monthlyAmount)}/mo · {inst.totalMonths} mo</div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 14.5, color: prog.paid > 0 ? C.paid : C.unpaid }}>{fmt(prog.paid)}</div>
-          <div style={{ fontSize: 10.5, color: C.muted }}>of {fmt(prog.total)}</div>
-        </div>
+        <button onClick={() => onOpen(inst)} className="pressable" style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+          <IconTile name="repeat" fg={C.paid} bg={C.paidBg} size={42} iconSize={20} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>{inst.name}</div>
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{inst.source} · {fmt(inst.monthlyAmount)}/mo · {inst.totalMonths} mo</div>
+          </div>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 14.5, color: prog.paid > 0 ? C.paid : C.unpaid }}>{fmt(prog.paid)}</div>
+            <div style={{ fontSize: 10.5, color: C.muted }}>of {fmt(prog.total)}</div>
+          </div>
+        </button>
         <button onClick={() => onEdit(inst)} className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
       </div>
       <ProgressBar pct={prog.pct} color={C.paid} />
@@ -1042,11 +1225,11 @@ function InstallmentCard({ inst, data, setData, onEdit }) {
   );
 }
 
-function InstallmentsScreen({ data, setData, openAddInstallment, openEditInstallment, openSettings }) {
+function InstallmentsScreen({ data, setData, openAddInstallment, openEditInstallment, openInstallmentDetail, openSettings }) {
   return (
     <div className="screen">
       <Header title="Installments" subtitle="Short-term monthly plans" onSettings={openSettings} onAdd={openAddInstallment} />
-      {data.installments.map(inst => <InstallmentCard key={inst.installmentId} inst={inst} data={data} setData={setData} onEdit={openEditInstallment} />)}
+      {data.installments.map(inst => <InstallmentCard key={inst.installmentId} inst={inst} data={data} setData={setData} onEdit={openEditInstallment} onOpen={openInstallmentDetail} />)}
       {data.installments.length === 0 && <EmptyState icon="repeat" title="No installments yet" subtitle="Tap + to add one" />}
     </div>
   );
@@ -1054,7 +1237,7 @@ function InstallmentsScreen({ data, setData, openAddInstallment, openEditInstall
 
 // ── Amortization Card ─────────────────────────────────────────────────────────
 
-function AmortizationCard({ amort, data, setData, onEdit }) {
+function AmortizationCard({ amort, data, setData, onEdit, onOpen }) {
   const [showMove, setShowMove] = useState(false);
   const cm = currentMonthStr();
   const curYear = String(new Date().getFullYear());
@@ -1088,11 +1271,11 @@ function AmortizationCard({ amort, data, setData, onEdit }) {
     const expected = Number(amort.monthlyAmount);
     const derivedStatus = amtPaid >= expected && expected > 0 ? 'paid' : amtPaid > 0 ? 'partial' : 'unpaid';
     if (existingEntry) {
-      const updated = { ...existingEntry, groupId: newGroupId, updatedAt: today };
+      const updated = { ...existingEntry, groupId: newGroupId };
       setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === existingEntry.entryId ? updated : e) }));
       api.post({ type: 'move_entry', rowId: existingEntry.entryId, groupId: newGroupId });
     } else {
-      const entry = { entryId: 'E_tmp_' + Date.now(), groupId: newGroupId, store: cm, item: amort.name, amount: amtPaid || expected, status: derivedStatus, entryType: 'amortization_payment', linkedId: amort.amortizationId, createdAt: today, updatedAt: today };
+      const entry = { entryId: 'E_tmp_' + Date.now(), groupId: newGroupId, store: cm, item: amort.name, amount: amtPaid || expected, status: derivedStatus, entryType: 'amortization_payment', linkedId: amort.amortizationId, createdAt: today };
       setData(d => ({ ...d, entries: [...d.entries, entry] }));
       api.post({ type: 'append_entry', ...entry });
     }
@@ -1103,15 +1286,17 @@ function AmortizationCard({ amort, data, setData, onEdit }) {
   return (
     <div style={cardStyle}>
       <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px 12px', gap: 12 }}>
-        <IconTile name="bank" fg={C.accent} bg={C.accentBg} size={42} iconSize={20} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>{amort.name}</div>
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{amort.lender}</div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 14.5, color: C.accent }}>{fmt(prog.paidAmount)}</div>
-          <div style={{ fontSize: 10.5, color: C.muted }}>of {fmt(amort.principalAmount)}</div>
-        </div>
+        <button onClick={() => onOpen(amort)} className="pressable" style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+          <IconTile name="bank" fg={C.accent} bg={C.accentBg} size={42} iconSize={20} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>{amort.name}</div>
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{amort.lender}</div>
+          </div>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 14.5, color: C.accent }}>{fmt(prog.paidAmount)}</div>
+            <div style={{ fontSize: 10.5, color: C.muted }}>of {fmt(amort.principalAmount)}</div>
+          </div>
+        </button>
         <button onClick={() => onEdit(amort)} className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
       </div>
       <ProgressBar pct={prog.pct} color={C.accent} />
@@ -1154,11 +1339,11 @@ function AmortizationCard({ amort, data, setData, onEdit }) {
   );
 }
 
-function AmortizationScreen({ data, setData, openAddAmortization, openEditAmortization, openSettings }) {
+function AmortizationScreen({ data, setData, openAddAmortization, openEditAmortization, openAmortizationDetail, openSettings }) {
   return (
     <div className="screen">
       <Header title="Amortization" subtitle="Long-term yearly loans" onSettings={openSettings} onAdd={openAddAmortization} />
-      {data.amortizations.map(amort => <AmortizationCard key={amort.amortizationId} amort={amort} data={data} setData={setData} onEdit={openEditAmortization} />)}
+      {data.amortizations.map(amort => <AmortizationCard key={amort.amortizationId} amort={amort} data={data} setData={setData} onEdit={openEditAmortization} onOpen={openAmortizationDetail} />)}
       {data.amortizations.length === 0 && <EmptyState icon="bank" title="No amortizations yet" subtitle="Tap + to add one" />}
     </div>
   );
@@ -1291,6 +1476,8 @@ export default function App() {
   function openAddEntry() { setEditEntry(null); setSheet('addEntry'); }
   function openEditInstallment(inst) { setEditItem(inst); setSheet('editInstallment'); }
   function openEditAmortization(amort) { setEditItem(amort); setSheet('editAmortization'); }
+  function openInstallmentDetail(inst) { setEditItem(inst); setSheet('installmentDetail'); }
+  function openAmortizationDetail(amort) { setEditItem(amort); setSheet('amortizationDetail'); }
   function openGroupActions(group) { setGroupTarget(group); setSheet('group'); }
   function openSettings() { setSheet('settings'); }
   function closeSheet() { setSheet(null); setEditEntry(null); setEditItem(null); setGroupTarget(null); }
@@ -1308,8 +1495,8 @@ export default function App() {
         ) : (
           <div style={{ overflowY: 'auto', paddingBottom: 20 }}>
             {tab === 'groups' && <GroupsScreen data={data} setData={setData} openAddEntry={openAddEntry} openEditEntry={openEditEntry} openGroupActions={openGroupActions} openSettings={openSettings} />}
-            {tab === 'installments' && <InstallmentsScreen data={data} setData={setData} openAddInstallment={() => setSheet('addInstallment')} openEditInstallment={openEditInstallment} openSettings={openSettings} />}
-            {tab === 'amortization' && <AmortizationScreen data={data} setData={setData} openAddAmortization={() => setSheet('addAmortization')} openEditAmortization={openEditAmortization} openSettings={openSettings} />}
+            {tab === 'installments' && <InstallmentsScreen data={data} setData={setData} openAddInstallment={() => setSheet('addInstallment')} openEditInstallment={openEditInstallment} openInstallmentDetail={openInstallmentDetail} openSettings={openSettings} />}
+            {tab === 'amortization' && <AmortizationScreen data={data} setData={setData} openAddAmortization={() => setSheet('addAmortization')} openEditAmortization={openEditAmortization} openAmortizationDetail={openAmortizationDetail} openSettings={openSettings} />}
             {tab === 'summary' && <SummaryScreen data={data} openSettings={openSettings} />}
           </div>
         )}
@@ -1320,8 +1507,10 @@ export default function App() {
         {sheet === 'editEntry' && editEntry && <EditMoveSheet entry={editEntry} data={data} setData={setData} onClose={closeSheet} onEdit={entry => { setEditEntry(entry); setSheet('addEntry'); }} />}
         {sheet === 'addInstallment' && <AddInstallmentSheet data={data} setData={setData} onClose={closeSheet} />}
         {sheet === 'editInstallment' && editItem && <AddInstallmentSheet data={data} setData={setData} init={editItem} onClose={closeSheet} />}
+        {sheet === 'installmentDetail' && editItem && <InstallmentDetailSheet inst={editItem} data={data} onClose={closeSheet} onEdit={() => setSheet('editInstallment')} />}
         {sheet === 'addAmortization' && <AddAmortizationSheet data={data} setData={setData} onClose={closeSheet} />}
         {sheet === 'editAmortization' && editItem && <AddAmortizationSheet data={data} setData={setData} init={editItem} onClose={closeSheet} />}
+        {sheet === 'amortizationDetail' && editItem && <AmortizationDetailSheet amort={editItem} data={data} onClose={closeSheet} onEdit={() => setSheet('editAmortization')} />}
         {sheet === 'group' && groupTarget && <GroupSheet group={groupTarget} data={data} setData={setData} onClose={closeSheet} />}
         {sheet === 'settings' && <SettingsSheet onClose={closeSheet} />}
       </div>
