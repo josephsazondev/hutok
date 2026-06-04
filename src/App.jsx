@@ -713,7 +713,7 @@ function AddInstallmentSheet({ data, setData, onClose, init }) {
     if (init) {
       const inst = { installmentId: init.installmentId, name, source, monthlyAmount: Number(monthlyAmount), totalMonths: Number(totalMonths), startDate, createdAt: init.createdAt };
       setData(d => ({ ...d, installments: d.installments.map(i => i.installmentId === init.installmentId ? { ...i, ...inst } : i) }));
-      api.post({ type: 'update_installment', rowId: init.installmentId, ...inst });
+      api.post({ type: 'update_installment', rowId: init.rowId || init.installmentId, ...inst });
     } else {
       const inst = { installmentId: 'I_tmp_' + Date.now(), name, source, monthlyAmount: Number(monthlyAmount), totalMonths: Number(totalMonths), startDate, createdAt: todayStr() };
       setData(d => ({ ...d, installments: [...d.installments, inst] }));
@@ -752,7 +752,7 @@ function AddAmortizationSheet({ data, setData, onClose, init }) {
     if (init) {
       const amort = { amortizationId: init.amortizationId, name, lender, monthlyAmount: Number(monthlyAmount), totalYears: Number(totalYears), startDate, principalAmount: Number(principalAmount), createdAt: init.createdAt };
       setData(d => ({ ...d, amortizations: d.amortizations.map(a => a.amortizationId === init.amortizationId ? { ...a, ...amort } : a) }));
-      api.post({ type: 'update_amortization', rowId: init.amortizationId, ...amort });
+      api.post({ type: 'update_amortization', rowId: init.rowId || init.amortizationId, ...amort });
     } else {
       const amort = { amortizationId: 'A_tmp_' + Date.now(), name, lender, monthlyAmount: Number(monthlyAmount), totalYears: Number(totalYears), startDate, principalAmount: Number(principalAmount), createdAt: todayStr() };
       setData(d => ({ ...d, amortizations: [...d.amortizations, amort] }));
@@ -788,14 +788,14 @@ function EditMoveSheet({ entry, data, setData, onClose, onEdit }) {
   function handleMove(newGroupId) {
     const updated = { ...entry, groupId: newGroupId };
     setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === entry.entryId ? updated : e) }));
-    api.post({ type: 'move_entry', rowId: entry.entryId, groupId: newGroupId });
+    api.post({ type: 'move_entry', rowId: entry.rowId || entry.entryId, groupId: newGroupId });
     setTimeout(() => syncData(setData), 1500);
     onClose();
   }
 
   function handleDelete() {
     setData(d => ({ ...d, entries: d.entries.filter(e => e.entryId !== entry.entryId) }));
-    api.post({ type: 'delete_entry', rowId: entry.entryId });
+    api.post({ type: 'delete_entry', rowId: entry.rowId || entry.entryId });
     setTimeout(() => syncData(setData), 1500);
     onClose();
   }
@@ -1159,7 +1159,8 @@ function AmortizationDetailSheet({ amort, data, onClose, onEdit, onAddPayment })
   const years = Array.from({ length: Number(amort.totalYears) }, (_, i) => String(startYear + i));
   const yearExpected = Number(amort.monthlyAmount) * 12;
   const monthlyExpected = Number(amort.monthlyAmount);
-  const curYearMonths = Array.from({ length: 12 }, (_, m) => `${curYear}-${String(m + 1).padStart(2, '0')}`);
+  const [selectedYear, setSelectedYear] = useState(years.includes(curYear) ? curYear : years[years.length - 1]);
+  const selectedMonths = Array.from({ length: 12 }, (_, m) => `${selectedYear}-${String(m + 1).padStart(2, '0')}`);
 
   function yearInfo(yr) {
     const rel = data.payments.filter(p => p.parentId === amort.amortizationId && String(p.period).slice(0, 4) === yr);
@@ -1199,26 +1200,28 @@ function AmortizationDetailSheet({ amort, data, onClose, onEdit, onAddPayment })
         <DetailRow label="Start date" value={fmtDate(amort.startDate)} last />
       </div>
 
-      <SectionLabel>Yearly breakdown</SectionLabel>
+      <SectionLabel>Yearly breakdown · tap a year</SectionLabel>
       <div style={detailCard}>
         {years.map((yr, i) => {
           const info = yearInfo(yr);
           const c = sc[info.status];
+          const active = yr === selectedYear;
           return (
-            <div key={yr} style={{ display: 'flex', alignItems: 'center', padding: '11px 16px', borderBottom: i === years.length - 1 ? 'none' : `1px solid ${C.divider}` }}>
+            <button key={yr} onClick={() => setSelectedYear(yr)} className="pressable" style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '11px 16px', borderBottom: i === years.length - 1 ? 'none' : `1px solid ${C.divider}`, background: active ? C.accentBg : 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{yr}</div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: active ? C.accentText : C.ink }}>{yr}</div>
                 <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{fmt(info.paid)} of {fmt(yearExpected)}</div>
               </div>
               <span style={badgeStyle(c[1], c[2])}>{c[0]}</span>
-            </div>
+              <Icon name="chevron" size={15} color={active ? C.accentText : C.hint} style={{ marginLeft: 8, transform: active ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+            </button>
           );
         })}
       </div>
 
-      <SectionLabel>Monthly · {curYear} · tap to record</SectionLabel>
+      <SectionLabel>Monthly · {selectedYear} · tap to record</SectionLabel>
       <div style={detailCard}>
-        {curYearMonths.map((period, i) => {
+        {selectedMonths.map((period, i) => {
           const paid = getMonthPaid(amort.amortizationId, period, data.payments);
           return (
             <ScheduleRow key={period} period={periodLabel(period)} status={getMonthStatus(amort.amortizationId, period, data.payments)}
@@ -1257,7 +1260,7 @@ function InstallmentCard({ inst, data, setData, onEdit, onOpen }) {
     if (existingEntry) {
       const updated = { ...existingEntry, groupId: newGroupId };
       setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === existingEntry.entryId ? updated : e) }));
-      api.post({ type: 'move_entry', rowId: existingEntry.entryId, groupId: newGroupId });
+      api.post({ type: 'move_entry', rowId: existingEntry.rowId || existingEntry.entryId, groupId: newGroupId });
     } else {
       const entry = { entryId: 'E_tmp_' + Date.now(), groupId: newGroupId, store: cm, item: inst.name, amount: amtPaid || expected, status: derivedStatus, entryType: 'installment_payment', linkedId: inst.installmentId, createdAt: today };
       setData(d => ({ ...d, entries: [...d.entries, entry] }));
@@ -1347,7 +1350,7 @@ function AmortizationCard({ amort, data, setData, onEdit, onOpen }) {
     if (existingEntry) {
       const updated = { ...existingEntry, groupId: newGroupId };
       setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === existingEntry.entryId ? updated : e) }));
-      api.post({ type: 'move_entry', rowId: existingEntry.entryId, groupId: newGroupId });
+      api.post({ type: 'move_entry', rowId: existingEntry.rowId || existingEntry.entryId, groupId: newGroupId });
     } else {
       const entry = { entryId: 'E_tmp_' + Date.now(), groupId: newGroupId, store: cm, item: amort.name, amount: amtPaid || expected, status: derivedStatus, entryType: 'amortization_payment', linkedId: amort.amortizationId, createdAt: today };
       setData(d => ({ ...d, entries: [...d.entries, entry] }));
