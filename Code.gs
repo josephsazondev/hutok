@@ -16,7 +16,7 @@ var HEADERS = {
   entries:       ['EntryId','GroupId','Store','Item','Amount','Status','EntryType','LinkedId','CreatedAt','AmountPaid'],
   installments:  ['InstallmentId','Name','Source','MonthlyAmount','TotalMonths','StartDate','CreatedAt'],
   payments:      ['PaymentId','ParentType','ParentId','Period','AmountPaid','ExpectedAmount','CreatedAt','UpdatedAt'],
-  amortizations: ['AmortizationId','Name','Lender','MonthlyAmount','TotalYears','StartDate','PrincipalAmount','CreatedAt'],
+  amortizations: ['AmortizationId','Name','Lender','MonthlyAmount','TotalYears','StartDate','PrincipalAmount','CreatedAt','YearlyRates'],
   config:        ['Key','Value','Description'],
 };
 
@@ -25,7 +25,7 @@ var FIELDS = {
   entries:       { entryId:0, groupId:1, store:2, item:3, amount:4, status:5, entryType:6, linkedId:7, createdAt:8, amountPaid:9 },
   installments:  { installmentId:0, name:1, source:2, monthlyAmount:3, totalMonths:4, startDate:5, createdAt:6 },
   payments:      { paymentId:0, parentType:1, parentId:2, period:3, amountPaid:4, expectedAmount:5, createdAt:6, updatedAt:7 },
-  amortizations: { amortizationId:0, name:1, lender:2, monthlyAmount:3, totalYears:4, startDate:5, principalAmount:6, createdAt:7 },
+  amortizations: { amortizationId:0, name:1, lender:2, monthlyAmount:3, totalYears:4, startDate:5, principalAmount:6, createdAt:7, ratesJson:8 },
 };
 
 // ─── HTTP handlers ─────────────────────────────────────────────────────────

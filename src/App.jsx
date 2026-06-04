@@ -87,6 +87,14 @@ function toPeriod(v) {
   if (!v) return '';
   return String(v).slice(0, 7);
 }
+// Per-year monthly rate overrides for amortizations (bank fixing periods).
+function getRates(amort) {
+  try { return amort && amort.ratesJson ? JSON.parse(amort.ratesJson) : {}; } catch { return {}; }
+}
+function rateForYear(amort, year) {
+  const v = getRates(amort)[String(year)];
+  return (v != null && v !== '') ? Number(v) : Number(amort.monthlyAmount || 0);
+}
 // Display title/subtitle for an entry — transactions show store/item;
 // installment & amortization payments show the plan name + formatted month.
 function entryTitle(e) {
@@ -235,7 +243,7 @@ const MOCK = {
     { paymentId: 'P_40', parentType: 'amortization', parentId: 'A_2', period: '2026-06', amountPaid: 8500, expectedAmount: 8500, createdAt: '2026-06-04', updatedAt: '2026-06-04' },
   ],
   amortizations: [
-    { amortizationId: 'A_2', name: 'House & lot', lender: 'Pag-IBIG', monthlyAmount: 8500, totalYears: 20, startDate: '2024-01-01', principalAmount: 2040000, createdAt: '2024-01-01' },
+    { amortizationId: 'A_2', name: 'House & lot', lender: 'Pag-IBIG', monthlyAmount: 8500, totalYears: 20, startDate: '2024-01-01', principalAmount: 2040000, createdAt: '2024-01-01', ratesJson: '{"2027":9800,"2028":9800}' },
   ],
 };
 
@@ -510,7 +518,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
       if (inst) setAmount(String(inst.monthlyAmount));
     } else if (type === 'amortization_payment') {
       const amort = data.amortizations.find(a => a.amortizationId === id);
-      if (amort) setAmount(String(amort.monthlyAmount));
+      if (amort) setAmount(String(rateForYear(amort, period.slice(0, 4))));
     }
   }
 
@@ -561,7 +569,9 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
       const parent = type === 'installment_payment'
         ? data.installments.find(i => i.installmentId === linkedId)
         : data.amortizations.find(a => a.amortizationId === linkedId);
-      const expected = parent ? Number(parent.monthlyAmount) : amtPaid;
+      const expected = parent
+        ? (type === 'amortization_payment' ? rateForYear(parent, period.slice(0, 4)) : Number(parent.monthlyAmount))
+        : amtPaid;
       const derivedStatus = amtPaid >= expected && expected > 0 ? 'paid' : amtPaid > 0 ? 'partial' : 'unpaid';
       const parentName = parent ? parent.name : '';
 
@@ -747,14 +757,34 @@ function AddAmortizationSheet({ data, setData, onClose, init }) {
   const [totalYears, setTotalYears] = useState(init ? String(init.totalYears) : '');
   const [startDate, setStartDate] = useState(init?.startDate || todayStr());
   const [principalAmount, setPrincipalAmount] = useState(init ? String(init.principalAmount) : '');
+  // Per-year monthly rate overrides, keyed by year string.
+  const [rates, setRates] = useState(() => {
+    const r = init ? getRates(init) : {};
+    const o = {};
+    Object.keys(r).forEach(k => { o[k] = String(r[k]); });
+    return o;
+  });
+
+  const startYear = Number((startDate || '').slice(0, 4));
+  const years = (startYear && Number(totalYears) > 0)
+    ? Array.from({ length: Number(totalYears) }, (_, i) => String(startYear + i))
+    : [];
+
+  function setRate(yr, v) { setRates(s => ({ ...s, [yr]: v })); }
 
   function handleSave() {
+    const ratesObj = {};
+    Object.keys(rates).forEach(yr => {
+      const v = rates[yr];
+      if (v !== '' && v != null && !isNaN(Number(v))) ratesObj[yr] = Number(v);
+    });
+    const ratesJson = Object.keys(ratesObj).length ? JSON.stringify(ratesObj) : '';
     if (init) {
-      const amort = { amortizationId: init.amortizationId, name, lender, monthlyAmount: Number(monthlyAmount), totalYears: Number(totalYears), startDate, principalAmount: Number(principalAmount), createdAt: init.createdAt };
+      const amort = { amortizationId: init.amortizationId, name, lender, monthlyAmount: Number(monthlyAmount), totalYears: Number(totalYears), startDate, principalAmount: Number(principalAmount), createdAt: init.createdAt, ratesJson };
       setData(d => ({ ...d, amortizations: d.amortizations.map(a => a.amortizationId === init.amortizationId ? { ...a, ...amort } : a) }));
       api.post({ type: 'update_amortization', rowId: init.rowId || init.amortizationId, ...amort });
     } else {
-      const amort = { amortizationId: 'A_tmp_' + Date.now(), name, lender, monthlyAmount: Number(monthlyAmount), totalYears: Number(totalYears), startDate, principalAmount: Number(principalAmount), createdAt: todayStr() };
+      const amort = { amortizationId: 'A_tmp_' + Date.now(), name, lender, monthlyAmount: Number(monthlyAmount), totalYears: Number(totalYears), startDate, principalAmount: Number(principalAmount), createdAt: todayStr(), ratesJson };
       setData(d => ({ ...d, amortizations: [...d.amortizations, amort] }));
       api.post({ type: 'append_amortization', ...amort });
     }
@@ -770,6 +800,22 @@ function AddAmortizationSheet({ data, setData, onClose, init }) {
       <Field label="Total years"><input style={inp} type="number" value={totalYears} onChange={e => setTotalYears(e.target.value)} placeholder="e.g. 20" /></Field>
       <Field label="Start date"><input style={inp} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
       <Field label="Principal amount ₱"><input style={inp} type="number" value={principalAmount} onChange={e => setPrincipalAmount(e.target.value)} placeholder="0.00" /></Field>
+
+      {years.length > 0 && (
+        <div style={{ padding: '0 20px 14px' }}>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: C.sub, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Monthly rate per year</label>
+          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 9 }}>Leave blank to use the base monthly amount. Override years where the rate changed.</div>
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+            {years.map((yr, i) => (
+              <div key={yr} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: i === years.length - 1 ? 'none' : `1px solid ${C.divider}` }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, width: 48 }}>{yr}</span>
+                <input style={{ ...inp, padding: '8px 12px' }} type="number" value={rates[yr] ?? ''} onChange={e => setRate(yr, e.target.value)} placeholder={monthlyAmount ? `${monthlyAmount} (base)` : '0.00'} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{ padding: '6px 20px 0' }}>
         <button style={btnNavy} className="pressable" onClick={handleSave}>{init ? 'Save changes' : 'Add amortization'}</button>
         <button style={btnGhost} className="pressable" onClick={onClose}>Cancel</button>
@@ -1162,10 +1208,9 @@ function AmortizationDetailSheet({ amort, data, onClose, onEdit, onAddPayment })
   const curYear = String(new Date().getFullYear());
   const startYear = Number((amort.startDate || '').slice(0, 4));
   const years = Array.from({ length: Number(amort.totalYears) }, (_, i) => String(startYear + i));
-  const yearExpected = Number(amort.monthlyAmount) * 12;
-  const monthlyExpected = Number(amort.monthlyAmount);
   const [selectedYear, setSelectedYear] = useState(years.includes(curYear) ? curYear : years[years.length - 1]);
   const selectedMonths = Array.from({ length: 12 }, (_, m) => `${selectedYear}-${String(m + 1).padStart(2, '0')}`);
+  const monthlyExpected = rateForYear(amort, selectedYear);
 
   function yearInfo(yr) {
     const rel = data.payments.filter(p => p.parentId === amort.amortizationId && String(p.period).slice(0, 4) === yr);
@@ -1197,7 +1242,7 @@ function AmortizationDetailSheet({ amort, data, onClose, onEdit, onAddPayment })
       <SectionLabel>Details</SectionLabel>
       <div style={detailCard}>
         <DetailRow label="Lender" value={amort.lender} />
-        <DetailRow label="Monthly amount" value={fmt(amort.monthlyAmount)} />
+        <DetailRow label="Monthly amount" value={Object.keys(getRates(amort)).length ? `${fmt(amort.monthlyAmount)} · varies by year` : fmt(amort.monthlyAmount)} />
         <DetailRow label="Term" value={`${amort.totalYears} years`} />
         <DetailRow label="Principal" value={fmt(amort.principalAmount)} />
         <DetailRow label="Paid to date" value={fmt(prog.paidAmount)} />
@@ -1215,7 +1260,7 @@ function AmortizationDetailSheet({ amort, data, onClose, onEdit, onAddPayment })
             <button key={yr} onClick={() => setSelectedYear(yr)} className="pressable" style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '11px 16px', borderBottom: i === years.length - 1 ? 'none' : `1px solid ${C.divider}`, background: active ? C.accentBg : 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700, color: active ? C.accentText : C.ink }}>{yr}</div>
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{fmt(info.paid)} of {fmt(yearExpected)}</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{fmt(info.paid)} of {fmt(rateForYear(amort, yr) * 12)}</div>
               </div>
               <span style={badgeStyle(c[1], c[2])}>{c[0]}</span>
               <Icon name="chevron" size={15} color={active ? C.accentText : C.hint} style={{ marginLeft: 8, transform: active ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
@@ -1350,7 +1395,7 @@ function AmortizationCard({ amort, data, setData, onEdit, onOpen }) {
     const existingEntry = data.entries.find(e => e.linkedId === amort.amortizationId && e.store === cm && e.entryType === 'amortization_payment');
     const payment = data.payments.find(p => p.parentId === amort.amortizationId && p.period === cm);
     const amtPaid = payment ? Number(payment.amountPaid) : 0;
-    const expected = Number(amort.monthlyAmount);
+    const expected = rateForYear(amort, cm.slice(0, 4));
     const derivedStatus = amtPaid >= expected && expected > 0 ? 'paid' : amtPaid > 0 ? 'partial' : 'unpaid';
     if (existingEntry) {
       const updated = { ...existingEntry, groupId: newGroupId };
