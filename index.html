@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a1a2e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <title>Hutok</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root { height: 100%; }
+      body { font-family: 'Inter', sans-serif; background: #f7f7fb; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; letter-spacing: -0.01em; }
+      button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
+      input, select, textarea { font-family: inherit; }
+      ::placeholder { color: #c4c4d0; }
+      input:focus, select:focus, textarea:focus { border-color: #6c63ff !important; box-shadow: 0 0 0 3px rgba(108,99,255,0.12); }
+      ::-webkit-scrollbar { width: 0; height: 0; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes popIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+      .spin { animation: spin .8s linear infinite; }
+      .sheet-panel { animation: sheetUp .3s cubic-bezier(.22,1,.36,1); }
+      .sheet-overlay { animation: fadeIn .2s ease; }
+      .screen { animation: popIn .26s cubic-bezier(.22,1,.36,1); }
+      .pressable { transition: transform .12s ease, background .15s ease, box-shadow .15s ease; }
+      .pressable:active { transform: scale(0.97); }
+    </style>
+    <script type="module" crossorigin src="./assets/index-DKOHs75i.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
