@@ -962,6 +962,8 @@ function SettingsSheet({ onClose }) {
 function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupActions, openSettings }) {
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState('');
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const toggleCollapse = id => setCollapsed(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const stats = summaryStats(data);
   const sorted = [...data.groups].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const filtered = search ? sorted.filter(g => g.label.toLowerCase().includes(search.toLowerCase())) : sorted;
@@ -999,18 +1001,21 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
         return (
           <div key={group.groupId} style={cardStyle}>
             <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px 12px', gap: 12 }}>
-              <IconTile name="calendar" fg={tint[0]} bg={tint[1]} size={42} iconSize={20} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.label}</div>
-                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</div>
-              </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 15, color: C.ink, letterSpacing: -0.3 }}>{fmt(total)}</div>
-                {allPaid && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: C.paidText, fontWeight: 700, marginTop: 2 }}><Icon name="check" size={11} stroke={2.6} /> all paid</div>}
-              </div>
+              <button onClick={() => toggleCollapse(group.groupId)} className="pressable" style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+                <IconTile name="calendar" fg={tint[0]} bg={tint[1]} size={42} iconSize={20} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.label}</div>
+                  <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: C.ink, letterSpacing: -0.3 }}>{fmt(total)}</div>
+                  {allPaid && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: C.paidText, fontWeight: 700, marginTop: 2 }}><Icon name="check" size={11} stroke={2.6} /> all paid</div>}
+                </div>
+                <Icon name="chevron" size={18} color={C.hint} style={{ flexShrink: 0, transform: collapsed.has(group.groupId) ? 'none' : 'rotate(90deg)', transition: 'transform .2s' }} />
+              </button>
               <button onClick={() => openGroupActions(group)} className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
             </div>
-            {entries.map(entry => {
+            {!collapsed.has(group.groupId) && entries.map(entry => {
               const dot = entry.status === 'paid' ? C.paid : entry.status === 'partial' ? C.partial : C.unpaid;
               return (
                 <button key={entry.entryId} onClick={() => openEditEntry(entry)} className="pressable" style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '11px 16px', borderTop: `1px solid ${C.divider}`, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
@@ -1027,7 +1032,7 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
                 </button>
               );
             })}
-            {entries.length === 0 && <div style={{ padding: '14px 16px', borderTop: `1px solid ${C.divider}`, fontSize: 12.5, color: C.muted, textAlign: 'center' }}>No entries yet</div>}
+            {!collapsed.has(group.groupId) && entries.length === 0 && <div style={{ padding: '14px 16px', borderTop: `1px solid ${C.divider}`, fontSize: 12.5, color: C.muted, textAlign: 'center' }}>No entries yet</div>}
           </div>
         );
       })}
