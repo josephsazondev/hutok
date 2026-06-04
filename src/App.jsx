@@ -774,6 +774,82 @@ function EditMoveSheet({ entry, data, setData, onClose, onEdit }) {
   );
 }
 
+// ── Group Actions Sheet (edit / delete) ───────────────────────────────────────
+
+function GroupSheet({ group, data, setData, onClose }) {
+  const [mode, setMode] = useState('menu'); // 'menu' | 'edit' | 'confirmDelete'
+  const [label, setLabel] = useState(group.label || '');
+  const entries = data.entries.filter(e => e.groupId === group.groupId);
+  const total = groupTotal(group.groupId, data.entries);
+
+  function handleSave() {
+    const updated = { ...group, label };
+    setData(d => ({ ...d, groups: d.groups.map(g => g.groupId === group.groupId ? updated : g) }));
+    api.post({ type: 'update_group', rowId: group.groupId, groupId: group.groupId, label, dateFrom: group.dateFrom, dateTo: group.dateTo, createdAt: group.createdAt });
+    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    onClose();
+  }
+
+  function handleDelete() {
+    setData(d => ({
+      ...d,
+      groups: d.groups.filter(g => g.groupId !== group.groupId),
+      entries: d.entries.filter(e => e.groupId !== group.groupId),
+    }));
+    api.post({ type: 'delete_group', groupId: group.groupId });
+    setTimeout(() => api.get('all').then(r => r && !r.error && setData(r)), 1500);
+    onClose();
+  }
+
+  const row = (icon, lbl, fg, bg, onClick, danger) => (
+    <button onClick={onClick} className="pressable" style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', padding: '11px 20px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+      <IconTile name={icon} fg={fg} bg={bg} size={40} iconSize={19} />
+      <span style={{ fontSize: 15, fontWeight: 600, color: danger ? C.unpaid : C.ink }}>{lbl}</span>
+    </button>
+  );
+
+  return (
+    <Sheet onClose={onClose} title={mode === 'edit' ? 'Rename group' : 'Group actions'}>
+      {mode !== 'edit' && (
+        <div style={{ margin: '0 20px 14px', padding: '14px 16px', background: C.bg, borderRadius: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>{group.label}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+            <span style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{fmt(total)}</span>
+            <span style={{ fontSize: 12, color: C.muted }}>· {entries.length} {entries.length === 1 ? 'entry' : 'entries'}</span>
+          </div>
+        </div>
+      )}
+
+      {mode === 'menu' && <>
+        {row('edit', 'Rename group', C.accentText, C.accentBg, () => setMode('edit'))}
+        {row('trash', 'Delete group', C.unpaidText, C.unpaidBg, () => setMode('confirmDelete'), true)}
+      </>}
+
+      {mode === 'edit' && <>
+        <Field label="Group label"><input style={inp} value={label} onChange={e => setLabel(e.target.value)} autoFocus /></Field>
+        <div style={{ padding: '6px 20px 0' }}>
+          <button style={btnNavy} className="pressable" onClick={handleSave}>Save changes</button>
+          <button style={btnGhost} className="pressable" onClick={() => setMode('menu')}>Cancel</button>
+        </div>
+      </>}
+
+      {mode === 'confirmDelete' && (
+        <div style={{ padding: '4px 20px 8px' }}>
+          <div style={{ fontSize: 14, color: C.unpaidText, fontWeight: 600, marginBottom: 12, padding: '12px 14px', background: C.unpaidBg, borderRadius: 12 }}>
+            {entries.length > 0
+              ? `Delete "${group.label}" and its ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}? This cannot be undone.`
+              : `Delete "${group.label}"? This cannot be undone.`}
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={handleDelete} className="pressable" style={{ flex: 1, background: C.unpaid, color: '#fff', border: 'none', borderRadius: 12, padding: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Delete</button>
+            <button onClick={() => setMode('menu')} className="pressable" style={{ flex: 1, background: C.divider, color: C.ink, border: 'none', borderRadius: 12, padding: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
 // ── Settings Sheet ────────────────────────────────────────────────────────────
 
 function SettingsSheet({ onClose }) {
@@ -822,7 +898,7 @@ function SettingsSheet({ onClose }) {
 
 // ── Groups Screen ─────────────────────────────────────────────────────────────
 
-function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openSettings }) {
+function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupActions, openSettings }) {
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState('');
   const stats = summaryStats(data);
@@ -871,6 +947,7 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openSettings
                 <div style={{ fontWeight: 800, fontSize: 15, color: C.ink, letterSpacing: -0.3 }}>{fmt(total)}</div>
                 {allPaid && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: C.paidText, fontWeight: 700, marginTop: 2 }}><Icon name="check" size={11} stroke={2.6} /> all paid</div>}
               </div>
+              <button onClick={() => openGroupActions(group)} className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
             </div>
             {entries.map(entry => {
               const dot = entry.status === 'paid' ? C.paid : entry.status === 'partial' ? C.partial : C.unpaid;
@@ -1198,6 +1275,7 @@ export default function App() {
   const [sheet, setSheet] = useState(null);
   const [editEntry, setEditEntry] = useState(null);
   const [editItem, setEditItem] = useState(null);
+  const [groupTarget, setGroupTarget] = useState(null);
 
   useEffect(() => {
     const s = getSettings();
@@ -1213,8 +1291,9 @@ export default function App() {
   function openAddEntry() { setEditEntry(null); setSheet('addEntry'); }
   function openEditInstallment(inst) { setEditItem(inst); setSheet('editInstallment'); }
   function openEditAmortization(amort) { setEditItem(amort); setSheet('editAmortization'); }
+  function openGroupActions(group) { setGroupTarget(group); setSheet('group'); }
   function openSettings() { setSheet('settings'); }
-  function closeSheet() { setSheet(null); setEditEntry(null); setEditItem(null); }
+  function closeSheet() { setSheet(null); setEditEntry(null); setEditItem(null); setGroupTarget(null); }
 
   return (
     <div style={{ background: C.bg, minHeight: '100dvh', display: 'flex', justifyContent: 'center' }}>
@@ -1228,7 +1307,7 @@ export default function App() {
           </div>
         ) : (
           <div style={{ overflowY: 'auto', paddingBottom: 20 }}>
-            {tab === 'groups' && <GroupsScreen data={data} setData={setData} openAddEntry={openAddEntry} openEditEntry={openEditEntry} openSettings={openSettings} />}
+            {tab === 'groups' && <GroupsScreen data={data} setData={setData} openAddEntry={openAddEntry} openEditEntry={openEditEntry} openGroupActions={openGroupActions} openSettings={openSettings} />}
             {tab === 'installments' && <InstallmentsScreen data={data} setData={setData} openAddInstallment={() => setSheet('addInstallment')} openEditInstallment={openEditInstallment} openSettings={openSettings} />}
             {tab === 'amortization' && <AmortizationScreen data={data} setData={setData} openAddAmortization={() => setSheet('addAmortization')} openEditAmortization={openEditAmortization} openSettings={openSettings} />}
             {tab === 'summary' && <SummaryScreen data={data} openSettings={openSettings} />}
@@ -1243,6 +1322,7 @@ export default function App() {
         {sheet === 'editInstallment' && editItem && <AddInstallmentSheet data={data} setData={setData} init={editItem} onClose={closeSheet} />}
         {sheet === 'addAmortization' && <AddAmortizationSheet data={data} setData={setData} onClose={closeSheet} />}
         {sheet === 'editAmortization' && editItem && <AddAmortizationSheet data={data} setData={setData} init={editItem} onClose={closeSheet} />}
+        {sheet === 'group' && groupTarget && <GroupSheet group={groupTarget} data={data} setData={setData} onClose={closeSheet} />}
         {sheet === 'settings' && <SettingsSheet onClose={closeSheet} />}
       </div>
     </div>
