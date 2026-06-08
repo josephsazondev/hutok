@@ -68,6 +68,8 @@ function doPost(e) {
     else if (d.type === 'move_entry')      { moveEntry(d.rowId, d.groupId); }
     else if (d.type === 'update_group')    { updateGroupRow(d.groupId, d); }
     else if (d.type === 'delete_group')    { deleteGroupCascade(d.groupId); }
+    else if (d.type === 'delete_installment')  { deletePlanCascade('installments', 'installmentId', d.id); }
+    else if (d.type === 'delete_amortization') { deletePlanCascade('amortizations', 'amortizationId', d.id); }
     else return out({ error: 'Unknown type: ' + d.type });
 
     return out({ ok: true });
@@ -111,18 +113,29 @@ function updateGroupRow(groupId, d) {
   writeRowAsText(getSheet('groups'), rowNum, 'groups', d);
 }
 
-function deleteGroupCascade(groupId) {
-  // Delete all entries belonging to this group (bottom-up to avoid row shifts).
-  var entriesSheet = getSheet('entries');
-  var entryRows = getRows('entries')
-    .filter(function(e) { return String(e.row[FIELDS.entries.groupId]) === String(groupId); })
+// Delete every row in `key` where column `fieldKey` matches `value`.
+// Deletes bottom-up so earlier deletions don't shift later row numbers.
+function deleteRowsByValue(key, fieldKey, value) {
+  var sheet = getSheet(key), col = FIELDS[key][fieldKey];
+  getRows(key)
+    .filter(function(e) { return String(e.row[col]) === String(value); })
     .map(function(e) { return e.rowNum; })
-    .sort(function(a, b) { return b - a; });
-  entryRows.forEach(function(rn) { entriesSheet.deleteRow(rn); });
+    .sort(function(a, b) { return b - a; })
+    .forEach(function(rn) { sheet.deleteRow(rn); });
+}
 
-  // Then delete the group row itself.
+function deleteGroupCascade(groupId) {
+  deleteRowsByValue('entries', 'groupId', groupId);
   var rowNum = findRowNumByValue('groups', 'groupId', groupId);
   if (rowNum >= 2) getSheet('groups').deleteRow(rowNum);
+}
+
+// Delete an installment/amortization plus its payment history and linked entries.
+function deletePlanCascade(parentKey, parentField, id) {
+  deleteRowsByValue('payments', 'parentId', id);   // payment history
+  deleteRowsByValue('entries', 'linkedId', id);    // entries linking payments to groups
+  var rowNum = findRowNumByValue(parentKey, parentField, id);
+  if (rowNum >= 2) getSheet(parentKey).deleteRow(rowNum);
 }
 
 // ─── Generic helpers (from TECH_TEMPLATE) ──────────────────────────────────
