@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const C = {
   bg: '#f7f7fb', surface: '#ffffff', navy: '#1a1a2e', navy2: '#2d2d4d',
   border: '#e8e8f0', divider: '#f0f0f5',
-  ink: '#1a1a2e', sub: '#6e6e80', muted: '#9a9aab', hint: '#c4c4d0',
+  ink: '#1a1a2e', sub: '#5f5f70', muted: '#7e7e8c', hint: '#b6b6c4',
   paid: '#1aaa74', paidBg: '#e6f7f1', paidText: '#0f7a52',
   unpaid: '#e05252', unpaidBg: '#fde8e8', unpaidText: '#b83232',
   partial: '#d48a1a', partialBg: '#fef3e2', partialText: '#a06a10',
@@ -39,6 +39,9 @@ const ICONS = {
   close:    <path d="M18 6 6 18M6 6l12 12" />,
   chevron:  <path d="m9 18 6-6-6-6" />,
   sparkle:  <><path d="M12 3v4M12 17v4M3 12h4M17 12h4" /><path d="m6.3 6.3 2.4 2.4M15.3 15.3l2.4 2.4M17.7 6.3l-2.4 2.4M8.7 15.3l-2.4 2.4" /></>,
+  more:     <><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></>,
+  refresh:  <><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" /></>,
+  undo:     <><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" /></>,
 };
 
 function Icon({ name, size = 20, color = 'currentColor', stroke = 1.9, fill = 'none', style }) {
@@ -54,7 +57,9 @@ function Icon({ name, size = 20, color = 'currentColor', stroke = 1.9, fill = 'n
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(n) {
-  return '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const v = Number(n || 0);
+  // Hide cents when the amount is whole — reduces visual noise in dense lists.
+  return '₱' + v.toLocaleString('en-PH', { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 });
 }
 function fmtCompact(n) {
   const v = Number(n || 0);
@@ -104,6 +109,25 @@ function entrySubtitle(e) {
   if (e.entryType === 'transaction') return e.item || '';
   const p = toPeriod(e.store);
   return p ? periodLabel(p) : '';
+}
+// Friendly group label: "2026-06 #1" → "Jun 2026 · #1"; custom labels pass through.
+function groupDisplayLabel(label) {
+  const m = String(label || '').match(/^(\d{4})-(\d{2}) #(\d+)$/);
+  if (!m) return label;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, 1);
+  return `${d.toLocaleDateString('en-PH', { month: 'short', year: 'numeric' })} · #${m[3]}`;
+}
+// Remaining amount still owed for an entry (0 when fully paid).
+function entryRemaining(e, payments) {
+  if (e.status === 'paid') return 0;
+  if (e.entryType === 'transaction') {
+    const paid = (e.amountPaid === '' || e.amountPaid == null) ? 0 : Number(e.amountPaid);
+    return Math.max(0, Number(e.amount || 0) - paid);
+  }
+  // Linked payment: remaining = expected (for that period) − paid.
+  const p = (payments || []).find(p => p.parentId === e.linkedId && toPeriod(p.period) === toPeriod(e.store));
+  if (p) return Math.max(0, Number(p.expectedAmount || 0) - Number(p.amountPaid || 0));
+  return Number(e.amount || 0);
 }
 function generateMonths(startDate, totalMonths) {
   const start = dateToMonth(startDate);
@@ -159,6 +183,10 @@ const api = {
 // Normalize server data so periods are always YYYY-MM and dates YYYY-MM-DD,
 // even if Google Sheets coerced them into Date objects (returned as timestamps).
 // This keeps payment-period matching reliable.
+function isEmptyData(d) {
+  if (!d) return true;
+  return ['groups', 'entries', 'installments', 'amortizations'].every(k => !(d[k] && d[k].length));
+}
 function normalizeData(d) {
   if (!d) return d;
   const dt = v => (v == null || v === '') ? v : String(v).slice(0, 10);
@@ -331,18 +359,20 @@ function getPaymentGroup(linkedId, period, entries, groups) {
 
 // ── UI primitives ─────────────────────────────────────────────────────────────
 
-function Badge({ status, type }) {
-  if (type === 'installment_payment' || type === 'amortization_payment') {
-    return <span style={badgeStyle(C.accentText, C.accentBg)}>
-      {type === 'installment_payment' ? 'Installment' : 'Amortization'}
-    </span>;
-  }
+// Status badge — always shows payment status (Paid / Partial / Unpaid).
+function Badge({ status }) {
   const map = { paid: [C.paidText, C.paidBg, 'Paid'], unpaid: [C.unpaidText, C.unpaidBg, 'Unpaid'], partial: [C.partialText, C.partialBg, 'Partial'] };
   const [color, bg, label] = map[status] || [C.muted, C.divider, status || ''];
   return <span style={badgeStyle(color, bg)}>{label}</span>;
 }
 function badgeStyle(color, bg) {
   return { display: 'inline-block', fontSize: 10, fontWeight: 700, color, background: bg, borderRadius: 7, padding: '3px 7px', letterSpacing: 0.2, lineHeight: 1.2 };
+}
+// Small inline type marker for installment/amortization entries (so type is still visible
+// now that the badge shows status).
+function TypeMark({ type }) {
+  if (type !== 'installment_payment' && type !== 'amortization_payment') return null;
+  return <Icon name={type === 'installment_payment' ? 'repeat' : 'bank'} size={12} color={C.accent} stroke={2.1} style={{ flexShrink: 0 }} />;
 }
 
 function IconTile({ name, fg, bg, size = 40, iconSize = 19 }) {
@@ -353,22 +383,22 @@ function IconTile({ name, fg, bg, size = 40, iconSize = 19 }) {
   );
 }
 
-function IconButton({ name, onClick, solid }) {
+function IconButton({ name, onClick, solid, label, spin }) {
   return (
-    <button onClick={onClick} className="pressable" style={{
-      width: 38, height: 38, borderRadius: 12, cursor: 'pointer',
+    <button onClick={onClick} aria-label={label} title={label} className="pressable" style={{
+      width: 40, height: 40, borderRadius: 12, cursor: 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       border: solid ? 'none' : `1px solid ${C.border}`,
       background: solid ? `linear-gradient(135deg, ${C.navy} 0%, ${C.navy2} 100%)` : C.surface,
       color: solid ? '#fff' : C.navy,
       boxShadow: solid ? SH.fab : SH.card,
     }}>
-      <Icon name={name} size={20} stroke={2} />
+      <span className={spin ? 'spin' : undefined} style={{ display: 'flex' }}><Icon name={name} size={20} stroke={2} /></span>
     </button>
   );
 }
 
-function Header({ title, subtitle, onSearch, onAdd, onSettings }) {
+function Header({ title, subtitle, onSearch, onAdd, onSettings, onRefresh, syncing }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 18px 12px' }}>
       <div style={{ minWidth: 0 }}>
@@ -376,9 +406,10 @@ function Header({ title, subtitle, onSearch, onAdd, onSettings }) {
         {subtitle && <div style={{ fontSize: 12.5, color: C.muted, marginTop: 1 }}>{subtitle}</div>}
       </div>
       <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexShrink: 0 }}>
-        {onSearch && <IconButton name="search" onClick={onSearch} />}
-        {onSettings && <IconButton name="settings" onClick={onSettings} />}
-        {onAdd && <IconButton name="plus" onClick={onAdd} solid />}
+        {onSearch && <IconButton name="search" onClick={onSearch} label="Search" />}
+        {onRefresh && <IconButton name="refresh" onClick={onRefresh} label="Refresh" spin={syncing} />}
+        {onSettings && <IconButton name="settings" onClick={onSettings} label="Settings" />}
+        {onAdd && <IconButton name="plus" onClick={onAdd} solid label="Add" />}
       </div>
     </div>
   );
@@ -394,7 +425,7 @@ function Sheet({ onClose, children, title }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px 14px' }}>
           <span style={{ fontWeight: 800, fontSize: 18, color: C.ink, letterSpacing: -0.3 }}>{title}</span>
-          <button onClick={onClose} className="pressable" style={{ background: C.divider, border: 'none', borderRadius: 10, width: 30, height: 30, color: C.sub, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button onClick={onClose} aria-label="Close" title="Close" className="pressable" style={{ background: C.divider, border: 'none', borderRadius: 10, width: 34, height: 34, color: C.sub, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="close" size={17} stroke={2.2} />
           </button>
         </div>
@@ -413,11 +444,40 @@ function Field({ label, children }) {
   );
 }
 
+function FormError({ msg }) {
+  if (!msg) return null;
+  return (
+    <div style={{ margin: '0 20px 10px', padding: '10px 14px', borderRadius: 12, background: C.unpaidBg, color: C.unpaidText, fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <Icon name="close" size={15} stroke={2.4} /> {msg}
+    </div>
+  );
+}
+
+function DeleteSection({ confirm, setConfirm, onDelete, label, warning }) {
+  return (
+    <div style={{ padding: '10px 20px 0' }}>
+      {!confirm ? (
+        <button onClick={() => setConfirm(true)} className="pressable" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: 'none', color: C.unpaid, border: `1.5px solid ${C.unpaidBg}`, borderRadius: 15, padding: 13, fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+          <Icon name="trash" size={17} stroke={2} /> {label}
+        </button>
+      ) : (
+        <>
+          <div style={{ fontSize: 13.5, color: C.unpaidText, fontWeight: 600, marginBottom: 10, padding: '12px 14px', background: C.unpaidBg, borderRadius: 12 }}>{warning}</div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onDelete} className="pressable" style={{ flex: 1, background: C.unpaid, color: '#fff', border: 'none', borderRadius: 12, padding: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Delete</button>
+            <button onClick={() => setConfirm(false)} className="pressable" style={{ flex: 1, background: C.divider, color: C.ink, border: 'none', borderRadius: 12, padding: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Cancel</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 const inp = { width: '100%', border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '12px 14px', fontSize: 15, color: C.ink, background: '#fbfbfe', outline: 'none', fontFamily: 'Inter,sans-serif', appearance: 'none', transition: 'border-color .15s, box-shadow .15s' };
 const btnNavy = { width: '100%', background: `linear-gradient(135deg, ${C.navy} 0%, ${C.navy2} 100%)`, color: '#fff', border: 'none', borderRadius: 15, padding: 15, fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', boxShadow: SH.fab, letterSpacing: -0.2 };
 const btnGhost = { width: '100%', background: C.surface, color: C.sub, border: `1.5px solid ${C.border}`, borderRadius: 15, padding: 14, fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 10, fontFamily: 'Inter,sans-serif' };
 const cardStyle = { background: C.surface, borderRadius: 20, border: `1px solid ${C.border}`, boxShadow: SH.card, margin: '0 16px 14px', overflow: 'hidden' };
-const editIconBtn = { width: 32, height: 32, borderRadius: 10, background: C.bg, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 };
+const editIconBtn = { width: 36, height: 36, borderRadius: 10, background: C.bg, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 };
 
 function MoveButton({ onClick }) {
   return (
@@ -476,13 +536,78 @@ function EmptyState({ icon, title, subtitle }) {
   );
 }
 
+// ── Global toast (lightweight pub/sub so any handler can call toast()) ─────────
+let _emitToast = null;
+function toast(message, opts) { if (_emitToast) _emitToast(message, opts || {}); }
+
+function ToastHost() {
+  const [t, setT] = useState(null);
+  const timer = useRef(null);
+  useEffect(() => {
+    _emitToast = (message, opts) => {
+      clearTimeout(timer.current);
+      setT({ message, undo: opts.undo, error: opts.error, id: Date.now() });
+      timer.current = setTimeout(() => setT(null), opts.undo ? 5000 : 2600);
+    };
+    return () => { _emitToast = null; clearTimeout(timer.current); };
+  }, []);
+  if (!t) return null;
+  return (
+    <div key={t.id} style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(86px + env(safe-area-inset-bottom))', zIndex: 300, width: 'calc(100% - 32px)', maxWidth: 358, animation: 'popIn .22s cubic-bezier(.22,1,.36,1)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.navy, color: '#fff', borderRadius: 14, padding: '12px 14px', boxShadow: SH.pop }}>
+        <Icon name={t.error ? 'close' : 'check'} size={17} color={t.error ? '#ff9b9b' : '#7ee2b8'} stroke={2.4} />
+        <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{t.message}</span>
+        {t.undo && (
+          <button onClick={() => { t.undo(); setT(null); }} className="pressable" style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.14)', color: '#fff', border: 'none', borderRadius: 9, padding: '6px 10px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+            <Icon name="undo" size={14} stroke={2.2} /> Undo
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Banner shown when running on demo data (no backend connected).
+function DemoBanner({ onConnect, onDismiss }) {
+  return (
+    <div style={{ margin: '0 16px 14px', padding: '12px 14px', background: C.accentBg, borderRadius: 14, display: 'flex', alignItems: 'center', gap: 11 }}>
+      <Icon name="sparkle" size={18} color={C.accentText} stroke={2} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.accentText }}>You're viewing demo data</div>
+        <div style={{ fontSize: 11.5, color: C.accentText, opacity: 0.85 }}>Connect your Google Sheet to track real entries.</div>
+      </div>
+      <button onClick={onConnect} className="pressable" style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 9, padding: '7px 11px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>Connect</button>
+      <button onClick={onDismiss} aria-label="Dismiss" className="pressable" style={{ background: 'none', border: 'none', color: C.accentText, cursor: 'pointer', padding: 2, flexShrink: 0 }}><Icon name="close" size={16} stroke={2.2} /></button>
+    </div>
+  );
+}
+
+// Full-screen load failure with recovery actions.
+function LoadErrorState({ onRetry, onSettings }) {
+  return (
+    <div style={{ textAlign: 'center', padding: '64px 28px', animation: 'popIn .3s ease' }}>
+      <div style={{ width: 72, height: 72, borderRadius: 22, background: C.unpaidBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+        <Icon name="close" size={32} color={C.unpaid} stroke={2.2} />
+      </div>
+      <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>Couldn't load your data</div>
+      <div style={{ fontSize: 13.5, marginTop: 5, color: C.muted }}>Check your connection or the API settings, then try again.</div>
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 20 }}>
+        <button onClick={onRetry} className="pressable" style={{ display: 'flex', alignItems: 'center', gap: 7, background: `linear-gradient(135deg, ${C.navy} 0%, ${C.navy2} 100%)`, color: '#fff', border: 'none', borderRadius: 13, padding: '11px 18px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', boxShadow: SH.fab }}>
+          <Icon name="refresh" size={16} stroke={2.2} /> Retry
+        </button>
+        <button onClick={onSettings} className="pressable" style={{ background: C.surface, color: C.sub, border: `1.5px solid ${C.border}`, borderRadius: 13, padding: '11px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Open Settings</button>
+      </div>
+    </div>
+  );
+}
+
 function MoveGroupPicker({ groups, onPick }) {
   return (
     <div style={{ padding: '4px 16px 12px', borderTop: `1px solid ${C.divider}`, animation: 'popIn .2s ease' }}>
       {groups.length === 0 && <div style={{ fontSize: 12.5, color: C.muted, padding: '8px 0' }}>No groups yet.</div>}
       {groups.map(g => (
         <button key={g.groupId} onClick={() => onPick(g.groupId)} className="pressable" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', textAlign: 'left', padding: '11px 14px', marginTop: 7, borderRadius: 12, border: `1px solid ${C.border}`, background: '#fbfbfe', fontSize: 14, fontWeight: 600, color: C.ink, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-          {g.label} <Icon name="chevron" size={16} color={C.hint} />
+          {groupDisplayLabel(g.label)} <Icon name="chevron" size={16} color={C.hint} />
         </button>
       ))}
     </div>
@@ -498,7 +623,13 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
   const [amount, setAmount] = useState(initEntry ? String(initEntry.amount) : (prefill?.amount != null ? String(prefill.amount) : ''));
   const [status, setStatus] = useState(initEntry?.status || 'unpaid');
   const [txPaid, setTxPaid] = useState(initEntry?.entryType === 'transaction' && initEntry?.status === 'partial' ? String(initEntry?.amountPaid ?? '') : '');
-  const [groupId, setGroupId] = useState(initEntry?.groupId || '');
+  // Default new entries to the most recent group (reduces accidental "ungrouped").
+  const [groupId, setGroupId] = useState(() => {
+    if (initEntry) return initEntry.groupId || '';
+    if (prefill) return prefill.groupId || '';
+    const recent = [...data.groups].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
+    return recent ? recent.groupId : '';
+  });
   const [linkedId, setLinkedId] = useState(initEntry?.linkedId || prefill?.linkedId || '');
   const [period, setPeriod] = useState(
     initEntry && initEntry.entryType !== 'transaction' ? (toPeriod(initEntry.store) || currentMonthStr())
@@ -506,6 +637,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
   );
   const [newGroup, setNewGroup] = useState(false);
   const [newLabel, setNewLabel] = useState(() => nextGroupLabel(data.groups));
+  const [error, setError] = useState('');
 
   // Prefill the amount with the plan's monthly amount when the user picks one.
   // (Done on select — not via effect — so editing an existing entry keeps its
@@ -536,6 +668,18 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
   }
 
   function handleSave() {
+    // Required-field validation — block save and surface a clear message.
+    if (type === 'transaction') {
+      if (!store.trim()) return setError('Store or person is required.');
+      if (!(Number(amount) > 0)) return setError('Enter an amount greater than 0.');
+      if (status === 'partial' && !(Number(txPaid) > 0)) return setError('Enter the amount paid.');
+    } else {
+      if (!linkedId) return setError(type === 'installment_payment' ? 'Select an installment.' : 'Select an amortization.');
+      if (!(Number(amount) > 0)) return setError('Enter an amount greater than 0.');
+    }
+    if (newGroup && !newLabel.trim()) return setError('Group label is required.');
+    setError('');
+
     const today = todayStr();
     let finalGroupId = groupId;
 
@@ -619,6 +763,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
       });
     }
     setTimeout(() => syncData(setData), 1500);
+    toast(type === 'transaction' ? (initEntry ? 'Entry updated' : 'Entry saved') : 'Payment recorded');
     onClose();
   }
 
@@ -694,7 +839,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
       <Field label="Add to group">
         <select style={inp} value={newGroup ? '__new__' : groupId} onChange={e => handleGroupChange(e.target.value)}>
           <option value="">— No group —</option>
-          {data.groups.map(g => <option key={g.groupId} value={g.groupId}>{g.label}</option>)}
+          {data.groups.map(g => <option key={g.groupId} value={g.groupId}>{groupDisplayLabel(g.label)}</option>)}
           <option value="__new__">+ New group</option>
         </select>
       </Field>
@@ -702,6 +847,7 @@ function AddEntrySheet({ data, setData, onClose, initEntry, prefill }) {
         <Field label="Group label"><input style={inp} value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="e.g. 2026-06 #1" /></Field>
       )}
 
+      <FormError msg={error} />
       <div style={{ padding: '6px 20px 0' }}>
         <button style={btnNavy} className="pressable" onClick={handleSave}>{initEntry ? 'Save changes' : 'Save entry'}</button>
         <button style={btnGhost} className="pressable" onClick={onClose}>Cancel</button>
@@ -718,8 +864,14 @@ function AddInstallmentSheet({ data, setData, onClose, init }) {
   const [monthlyAmount, setMonthlyAmount] = useState(init ? String(init.monthlyAmount) : '');
   const [totalMonths, setTotalMonths] = useState(init ? String(init.totalMonths) : '');
   const [startDate, setStartDate] = useState(init?.startDate || todayStr());
+  const [error, setError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   function handleSave() {
+    if (!name.trim()) return setError('Name is required.');
+    if (!(Number(monthlyAmount) > 0)) return setError('Enter a monthly amount greater than 0.');
+    if (!(Number(totalMonths) > 0)) return setError('Enter the number of months.');
+    setError('');
     if (init) {
       const inst = { installmentId: init.installmentId, name, source, monthlyAmount: Number(monthlyAmount), totalMonths: Number(totalMonths), startDate, createdAt: init.createdAt };
       setData(d => ({ ...d, installments: d.installments.map(i => i.installmentId === init.installmentId ? { ...i, ...inst } : i) }));
@@ -730,8 +882,25 @@ function AddInstallmentSheet({ data, setData, onClose, init }) {
       api.post({ type: 'append_installment', ...inst });
     }
     setTimeout(() => syncData(setData), 1500);
+    toast(init ? 'Installment updated' : 'Installment added');
     onClose();
   }
+
+  function handleDelete() {
+    const id = init.installmentId;
+    setData(d => ({
+      ...d,
+      installments: d.installments.filter(i => i.installmentId !== id),
+      payments: d.payments.filter(p => p.parentId !== id),
+      entries: d.entries.filter(e => e.linkedId !== id),
+    }));
+    api.post({ type: 'delete_installment', id });
+    setTimeout(() => syncData(setData), 1500);
+    toast('Installment deleted');
+    onClose();
+  }
+
+  const paymentCount = init ? data.payments.filter(p => p.parentId === init.installmentId).length : 0;
 
   return (
     <Sheet onClose={onClose} title={init ? 'Edit installment' : 'Add installment'}>
@@ -740,10 +909,14 @@ function AddInstallmentSheet({ data, setData, onClose, init }) {
       <Field label="Monthly amount ₱"><input style={inp} type="number" value={monthlyAmount} onChange={e => setMonthlyAmount(e.target.value)} placeholder="0.00" /></Field>
       <Field label="Total months"><input style={inp} type="number" value={totalMonths} onChange={e => setTotalMonths(e.target.value)} placeholder="e.g. 12" /></Field>
       <Field label="Start date"><input style={inp} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
+      <FormError msg={error} />
       <div style={{ padding: '6px 20px 0' }}>
         <button style={btnNavy} className="pressable" onClick={handleSave}>{init ? 'Save changes' : 'Add installment'}</button>
         <button style={btnGhost} className="pressable" onClick={onClose}>Cancel</button>
       </div>
+      {init && <DeleteSection confirm={confirmDelete} setConfirm={setConfirmDelete} onDelete={handleDelete}
+        label="Delete installment"
+        warning={paymentCount > 0 ? `Delete "${init.name}" and its ${paymentCount} recorded ${paymentCount === 1 ? 'payment' : 'payments'}? This cannot be undone.` : `Delete "${init.name}"? This cannot be undone.`} />}
     </Sheet>
   );
 }
@@ -757,6 +930,8 @@ function AddAmortizationSheet({ data, setData, onClose, init }) {
   const [totalYears, setTotalYears] = useState(init ? String(init.totalYears) : '');
   const [startDate, setStartDate] = useState(init?.startDate || todayStr());
   const [principalAmount, setPrincipalAmount] = useState(init ? String(init.principalAmount) : '');
+  const [error, setError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   // Per-year monthly rate overrides, keyed by year string.
   const [rates, setRates] = useState(() => {
     const r = init ? getRates(init) : {};
@@ -772,7 +947,26 @@ function AddAmortizationSheet({ data, setData, onClose, init }) {
 
   function setRate(yr, v) { setRates(s => ({ ...s, [yr]: v })); }
 
+  function handleDelete() {
+    const id = init.amortizationId;
+    setData(d => ({
+      ...d,
+      amortizations: d.amortizations.filter(a => a.amortizationId !== id),
+      payments: d.payments.filter(p => p.parentId !== id),
+      entries: d.entries.filter(e => e.linkedId !== id),
+    }));
+    api.post({ type: 'delete_amortization', id });
+    setTimeout(() => syncData(setData), 1500);
+    toast('Loan deleted');
+    onClose();
+  }
+
   function handleSave() {
+    if (!name.trim()) return setError('Name is required.');
+    if (!(Number(monthlyAmount) > 0)) return setError('Enter a monthly amount greater than 0.');
+    if (!(Number(totalYears) > 0)) return setError('Enter the loan term in years.');
+    if (!(Number(principalAmount) > 0)) return setError('Enter the principal amount.');
+    setError('');
     const ratesObj = {};
     Object.keys(rates).forEach(yr => {
       const v = rates[yr];
@@ -789,6 +983,7 @@ function AddAmortizationSheet({ data, setData, onClose, init }) {
       api.post({ type: 'append_amortization', ...amort });
     }
     setTimeout(() => syncData(setData), 1500);
+    toast(init ? 'Loan updated' : 'Loan added');
     onClose();
   }
 
@@ -816,10 +1011,14 @@ function AddAmortizationSheet({ data, setData, onClose, init }) {
         </div>
       )}
 
+      <FormError msg={error} />
       <div style={{ padding: '6px 20px 0' }}>
         <button style={btnNavy} className="pressable" onClick={handleSave}>{init ? 'Save changes' : 'Add amortization'}</button>
         <button style={btnGhost} className="pressable" onClick={onClose}>Cancel</button>
       </div>
+      {init && <DeleteSection confirm={confirmDelete} setConfirm={setConfirmDelete} onDelete={handleDelete}
+        label="Delete amortization"
+        warning={(function(){ var n = data.payments.filter(p => p.parentId === init.amortizationId).length; return n > 0 ? `Delete "${init.name}" and its ${n} recorded ${n === 1 ? 'payment' : 'payments'}? This cannot be undone.` : `Delete "${init.name}"? This cannot be undone.`; })()} />}
     </Sheet>
   );
 }
@@ -836,13 +1035,22 @@ function EditMoveSheet({ entry, data, setData, onClose, onEdit }) {
     setData(d => ({ ...d, entries: d.entries.map(e => e.entryId === entry.entryId ? updated : e) }));
     api.post({ type: 'move_entry', rowId: entry.rowId || entry.entryId, groupId: newGroupId });
     setTimeout(() => syncData(setData), 1500);
+    const tg = data.groups.find(g => g.groupId === newGroupId);
+    toast(tg ? `Moved to ${groupDisplayLabel(tg.label)}` : 'Moved');
     onClose();
   }
 
   function handleDelete() {
-    setData(d => ({ ...d, entries: d.entries.filter(e => e.entryId !== entry.entryId) }));
-    api.post({ type: 'delete_entry', rowId: entry.rowId || entry.entryId });
+    const removed = entry;
+    setData(d => ({ ...d, entries: d.entries.filter(e => e.entryId !== removed.entryId) }));
+    api.post({ type: 'delete_entry', rowId: removed.rowId || removed.entryId });
     setTimeout(() => syncData(setData), 1500);
+    toast('Entry deleted', { undo: () => {
+      setData(d => ({ ...d, entries: [removed, ...d.entries] }));
+      api.post({ type: 'append_entry', entryId: removed.entryId, groupId: removed.groupId, store: removed.store, item: removed.item, amount: removed.amount, status: removed.status, amountPaid: removed.amountPaid, entryType: removed.entryType, linkedId: removed.linkedId, createdAt: removed.createdAt });
+      setTimeout(() => syncData(setData), 1500);
+      toast('Entry restored');
+    } });
     onClose();
   }
 
@@ -859,8 +1067,8 @@ function EditMoveSheet({ entry, data, setData, onClose, onEdit }) {
         <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>{entryTitle(entry)}{entrySubtitle(entry) ? ` · ${entrySubtitle(entry)}` : ''}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
           <span style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{fmt(entry.amount)}</span>
-          <Badge status={entry.status} type={entry.entryType} />
-          <span style={{ fontSize: 12, color: C.muted, marginLeft: 'auto' }}>{group ? group.label : 'No group'}</span>
+          <Badge status={entry.status} />
+          <span style={{ fontSize: 12, color: C.muted, marginLeft: 'auto' }}>{group ? groupDisplayLabel(group.label) : 'No group'}</span>
         </div>
       </div>
 
@@ -894,6 +1102,7 @@ function GroupSheet({ group, data, setData, onClose }) {
     setData(d => ({ ...d, groups: d.groups.map(g => g.groupId === group.groupId ? updated : g) }));
     api.post({ type: 'update_group', rowId: group.groupId, groupId: group.groupId, label, dateFrom: group.dateFrom, dateTo: group.dateTo, createdAt: group.createdAt });
     setTimeout(() => syncData(setData), 1500);
+    toast('Group renamed');
     onClose();
   }
 
@@ -905,6 +1114,7 @@ function GroupSheet({ group, data, setData, onClose }) {
     }));
     api.post({ type: 'delete_group', groupId: group.groupId });
     setTimeout(() => syncData(setData), 1500);
+    toast('Group deleted');
     onClose();
   }
 
@@ -919,7 +1129,7 @@ function GroupSheet({ group, data, setData, onClose }) {
     <Sheet onClose={onClose} title={mode === 'edit' ? 'Rename group' : 'Group actions'}>
       {mode !== 'edit' && (
         <div style={{ margin: '0 20px 14px', padding: '14px 16px', background: C.bg, borderRadius: 16 }}>
-          <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>{group.label}</div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>{groupDisplayLabel(group.label)}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
             <span style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{fmt(total)}</span>
             <span style={{ fontSize: 12, color: C.muted }}>· {entries.length} {entries.length === 1 ? 'entry' : 'entries'}</span>
@@ -944,8 +1154,8 @@ function GroupSheet({ group, data, setData, onClose }) {
         <div style={{ padding: '4px 20px 8px' }}>
           <div style={{ fontSize: 14, color: C.unpaidText, fontWeight: 600, marginBottom: 12, padding: '12px 14px', background: C.unpaidBg, borderRadius: 12 }}>
             {entries.length > 0
-              ? `Delete "${group.label}" and its ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}? This cannot be undone.`
-              : `Delete "${group.label}"? This cannot be undone.`}
+              ? `Delete "${groupDisplayLabel(group.label)}" and its ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}? This cannot be undone.`
+              : `Delete "${groupDisplayLabel(group.label)}"? This cannot be undone.`}
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={handleDelete} className="pressable" style={{ flex: 1, background: C.unpaid, color: '#fff', border: 'none', borderRadius: 12, padding: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Delete</button>
@@ -1005,7 +1215,32 @@ function SettingsSheet({ onClose }) {
 
 // ── Groups Screen ─────────────────────────────────────────────────────────────
 
-function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupActions, openSettings }) {
+function EntryRow({ entry, payments, onClick }) {
+  const dot = entry.status === 'paid' ? C.paid : entry.status === 'partial' ? C.partial : C.unpaid;
+  const remaining = entry.status === 'partial' ? entryRemaining(entry, payments) : 0;
+  return (
+    <button onClick={onClick} className="pressable" style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '11px 16px', borderTop: `1px solid ${C.divider}`, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+      <span style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, marginRight: 12, background: dot, boxShadow: `0 0 0 3px ${dot}1f` }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <TypeMark type={entry.entryType} />
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryTitle(entry)}</span>
+        </div>
+        <div style={{ fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entrySubtitle(entry)}</div>
+      </div>
+      <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{fmt(entry.amount)}</div>
+        <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+          {entry.status === 'partial' && remaining > 0 && <span style={{ fontSize: 10.5, color: C.partialText, fontWeight: 600 }}>{fmt(remaining)} left</span>}
+          <Badge status={entry.status} />
+        </div>
+      </div>
+      <Icon name="chevron" size={16} color={C.hint} style={{ marginLeft: 8 }} />
+    </button>
+  );
+}
+
+function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupActions, openSettings, onRefresh, syncing }) {
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState(() => new Set());
@@ -1013,10 +1248,12 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
   const stats = summaryStats(data);
   const sorted = [...data.groups].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const filtered = search ? sorted.filter(g => g.label.toLowerCase().includes(search.toLowerCase())) : sorted;
+  const groupIdSet = new Set(data.groups.map(g => g.groupId));
+  const ungrouped = data.entries.filter(e => !e.groupId || !groupIdSet.has(e.groupId));
 
   return (
     <div className="screen">
-      <Header title="My ledger" subtitle="Track what you owe" onSearch={() => setShowSearch(v => !v)} onSettings={openSettings} onAdd={openAddEntry} />
+      <Header title="My ledger" subtitle="Track what you owe" onSearch={() => setShowSearch(v => !v)} onRefresh={onRefresh} syncing={syncing} onSettings={openSettings} onAdd={openAddEntry} />
 
       {showSearch && (
         <div style={{ padding: '0 18px 12px' }}>
@@ -1050,7 +1287,7 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
               <button onClick={() => toggleCollapse(group.groupId)} className="pressable" style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
                 <IconTile name="calendar" fg={tint[0]} bg={tint[1]} size={42} iconSize={20} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.label}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{groupDisplayLabel(group.label)}</div>
                   <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{entries.length} {entries.length === 1 ? 'entry' : 'entries'}</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -1059,31 +1296,34 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
                 </div>
                 <Icon name="chevron" size={18} color={C.hint} style={{ flexShrink: 0, transform: collapsed.has(group.groupId) ? 'none' : 'rotate(90deg)', transition: 'transform .2s' }} />
               </button>
-              <button onClick={() => openGroupActions(group)} className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
+              <button onClick={() => openGroupActions(group)} aria-label="Group options" className="pressable" style={editIconBtn}><Icon name="more" size={18} color={C.muted} /></button>
             </div>
-            {!collapsed.has(group.groupId) && entries.map(entry => {
-              const dot = entry.status === 'paid' ? C.paid : entry.status === 'partial' ? C.partial : C.unpaid;
-              return (
-                <button key={entry.entryId} onClick={() => openEditEntry(entry)} className="pressable" style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '11px 16px', borderTop: `1px solid ${C.divider}`, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
-                  <span style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, marginRight: 12, background: dot, boxShadow: `0 0 0 3px ${dot}1f` }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryTitle(entry)}</div>
-                    <div style={{ fontSize: 11.5, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entrySubtitle(entry)}</div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{fmt(entry.amount)}</div>
-                    <div style={{ marginTop: 3 }}><Badge status={entry.status} type={entry.entryType} /></div>
-                  </div>
-                  <Icon name="chevron" size={16} color={C.hint} style={{ marginLeft: 8 }} />
-                </button>
-              );
-            })}
+            {!collapsed.has(group.groupId) && entries.map(entry => (
+              <EntryRow key={entry.entryId} entry={entry} payments={data.payments} onClick={() => openEditEntry(entry)} />
+            ))}
             {!collapsed.has(group.groupId) && entries.length === 0 && <div style={{ padding: '14px 16px', borderTop: `1px solid ${C.divider}`, fontSize: 12.5, color: C.muted, textAlign: 'center' }}>No entries yet</div>}
           </div>
         );
       })}
 
-      {filtered.length === 0 && <EmptyState icon="list" title="No groups yet" subtitle="Add your first entry to get started" />}
+      {!search && ungrouped.length > 0 && (
+        <div style={cardStyle}>
+          <button onClick={() => toggleCollapse('__ungrouped__')} className="pressable" style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '14px 16px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+            <IconTile name="wallet" fg={C.sub} bg={C.divider} size={42} iconSize={20} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}>Ungrouped</div>
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{ungrouped.length} {ungrouped.length === 1 ? 'entry' : 'entries'} · not in a group</div>
+            </div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: C.ink, letterSpacing: -0.3, flexShrink: 0 }}>{fmt(ungrouped.reduce((s, e) => s + Number(e.amount || 0), 0))}</div>
+            <Icon name="chevron" size={18} color={C.hint} style={{ flexShrink: 0, transform: collapsed.has('__ungrouped__') ? 'none' : 'rotate(90deg)', transition: 'transform .2s' }} />
+          </button>
+          {!collapsed.has('__ungrouped__') && ungrouped.map(entry => (
+            <EntryRow key={entry.entryId} entry={entry} payments={data.payments} onClick={() => openEditEntry(entry)} />
+          ))}
+        </div>
+      )}
+
+      {filtered.length === 0 && ungrouped.length === 0 && <EmptyState icon="list" title="No groups yet" subtitle="Add your first entry to get started" />}
 
       <div style={{ padding: '6px 16px 16px' }}>
         <button style={{ ...btnNavy, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }} className="pressable" onClick={openAddEntry}>
@@ -1317,6 +1557,8 @@ function InstallmentCard({ inst, data, setData, onEdit, onOpen }) {
       api.post({ type: 'append_entry', ...entry });
     }
     setTimeout(() => syncData(setData), 1500);
+    const tg = data.groups.find(g => g.groupId === newGroupId);
+    toast(tg ? `Moved to ${groupDisplayLabel(tg.label)}` : 'Moved');
     setShowMove(false);
   }
 
@@ -1334,7 +1576,7 @@ function InstallmentCard({ inst, data, setData, onEdit, onOpen }) {
             <div style={{ fontSize: 10.5, color: C.muted }}>of {fmt(prog.total)}</div>
           </div>
         </button>
-        <button onClick={() => onEdit(inst)} className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
+        <button onClick={() => onEdit(inst)} aria-label="Edit installment" title="Edit" className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
       </div>
       <ProgressBar pct={prog.pct} color={C.paid} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 6, padding: '0 16px 12px' }}>
@@ -1352,10 +1594,10 @@ function InstallmentCard({ inst, data, setData, onEdit, onOpen }) {
   );
 }
 
-function InstallmentsScreen({ data, setData, openAddInstallment, openEditInstallment, openInstallmentDetail, openSettings }) {
+function InstallmentsScreen({ data, setData, openAddInstallment, openEditInstallment, openInstallmentDetail, openSettings, onRefresh, syncing }) {
   return (
     <div className="screen">
-      <Header title="Installments" subtitle="Short-term monthly plans" onSettings={openSettings} onAdd={openAddInstallment} />
+      <Header title="Installments" subtitle="Short-term monthly plans" onRefresh={onRefresh} syncing={syncing} onSettings={openSettings} onAdd={openAddInstallment} />
       {data.installments.map(inst => <InstallmentCard key={inst.installmentId} inst={inst} data={data} setData={setData} onEdit={openEditInstallment} onOpen={openInstallmentDetail} />)}
       {data.installments.length === 0 && <EmptyState icon="repeat" title="No installments yet" subtitle="Tap + to add one" />}
     </div>
@@ -1407,6 +1649,8 @@ function AmortizationCard({ amort, data, setData, onEdit, onOpen }) {
       api.post({ type: 'append_entry', ...entry });
     }
     setTimeout(() => syncData(setData), 1500);
+    const tg = data.groups.find(g => g.groupId === newGroupId);
+    toast(tg ? `Moved to ${groupDisplayLabel(tg.label)}` : 'Moved');
     setShowMove(false);
   }
 
@@ -1424,7 +1668,7 @@ function AmortizationCard({ amort, data, setData, onEdit, onOpen }) {
             <div style={{ fontSize: 10.5, color: C.muted }}>of {fmt(amort.principalAmount)}</div>
           </div>
         </button>
-        <button onClick={() => onEdit(amort)} className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
+        <button onClick={() => onEdit(amort)} aria-label="Edit loan" title="Edit" className="pressable" style={editIconBtn}><Icon name="edit" size={16} color={C.muted} /></button>
       </div>
       <ProgressBar pct={prog.pct} color={C.accent} />
       <div style={{ background: C.amortBg, margin: '0 16px 12px', borderRadius: 14, padding: '12px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -1466,10 +1710,10 @@ function AmortizationCard({ amort, data, setData, onEdit, onOpen }) {
   );
 }
 
-function AmortizationScreen({ data, setData, openAddAmortization, openEditAmortization, openAmortizationDetail, openSettings }) {
+function AmortizationScreen({ data, setData, openAddAmortization, openEditAmortization, openAmortizationDetail, openSettings, onRefresh, syncing }) {
   return (
     <div className="screen">
-      <Header title="Amortization" subtitle="Long-term yearly loans" onSettings={openSettings} onAdd={openAddAmortization} />
+      <Header title="Loans" subtitle="Long-term yearly amortizations" onRefresh={onRefresh} syncing={syncing} onSettings={openSettings} onAdd={openAddAmortization} />
       {data.amortizations.map(amort => <AmortizationCard key={amort.amortizationId} amort={amort} data={data} setData={setData} onEdit={openEditAmortization} onOpen={openAmortizationDetail} />)}
       {data.amortizations.length === 0 && <EmptyState icon="bank" title="No amortizations yet" subtitle="Tap + to add one" />}
     </div>
@@ -1478,12 +1722,15 @@ function AmortizationScreen({ data, setData, openAddAmortization, openEditAmorti
 
 // ── Summary Screen ────────────────────────────────────────────────────────────
 
-function SummaryScreen({ data, openSettings }) {
+function SummaryScreen({ data, openSettings, onRefresh, syncing }) {
   const stats = summaryStats(data);
-  const topUnpaid = [...data.entries].filter(e => e.status === 'unpaid' || e.status === 'partial').sort((a, b) => Number(b.amount) - Number(a.amount)).slice(0, 5);
+  const topUnpaid = [...data.entries].filter(e => e.status === 'unpaid' || e.status === 'partial')
+    .map(e => ({ ...e, remaining: entryRemaining(e, data.payments) }))
+    .filter(e => e.remaining > 0)
+    .sort((a, b) => b.remaining - a.remaining).slice(0, 5);
   return (
     <div className="screen">
-      <Header title="Summary" subtitle="Your money at a glance" onSettings={openSettings} />
+      <Header title="Summary" subtitle="Your money at a glance" onRefresh={onRefresh} syncing={syncing} onSettings={openSettings} />
       <div style={{ padding: '0 16px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
           {[
@@ -1536,12 +1783,15 @@ function SummaryScreen({ data, openSettings }) {
             {topUnpaid.map((entry, i) => (
               <div key={entry.entryId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 16px', borderBottom: i < topUnpaid.length - 1 ? `1px solid ${C.divider}` : 'none' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryTitle(entry)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <TypeMark type={entry.entryType} />
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entryTitle(entry)}</span>
+                  </div>
                   <div style={{ fontSize: 11.5, color: C.muted }}>{entrySubtitle(entry)}</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 800, color: C.unpaid }}>{fmt(entry.amount)}</div>
-                  <div style={{ marginTop: 3 }}><Badge status={entry.status} type={entry.entryType} /></div>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, color: C.unpaid }}>{fmt(entry.remaining)}</div>
+                  <div style={{ marginTop: 3 }}><Badge status={entry.status} /></div>
                 </div>
               </div>
             ))}
@@ -1557,7 +1807,7 @@ function SummaryScreen({ data, openSettings }) {
 function BottomNav({ tab, setTab }) {
   const tabs = [
     { key: 'groups', label: 'Groups', icon: 'list' },
-    { key: 'installments', label: 'Payments', icon: 'repeat' },
+    { key: 'installments', label: 'Installments', icon: 'repeat' },
     { key: 'amortization', label: 'Loans', icon: 'bank' },
     { key: 'summary', label: 'Summary', icon: 'chart' },
   ];
@@ -1589,16 +1839,41 @@ export default function App() {
   const [editItem, setEditItem] = useState(null);
   const [groupTarget, setGroupTarget] = useState(null);
   const [prefill, setPrefill] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [demoDismissed, setDemoDismissed] = useState(false);
+  const isDemo = !getSettings().apiUrl;
+
+  function loadInitial() {
+    const s = getSettings();
+    if (!s.apiUrl) { setData(MOCK); setLoading(false); return; }
+    setLoadError(false);
+    api.get('all')
+      .then(r => { if (r && !r.error) setData(normalizeData(r)); else setLoadError(true); setLoading(false); })
+      .catch(() => { setLoadError(true); setLoading(false); });
+  }
+
+  // Manual / focus re-sync. Full error screen only when we have nothing to show.
+  function refresh() {
+    if (!getSettings().apiUrl) { setData(MOCK); return; }
+    setSyncing(true);
+    api.get('all')
+      .then(r => {
+        if (r && !r.error) { setData(normalizeData(r)); setLoadError(false); }
+        else if (isEmptyData(data)) setLoadError(true);
+        else toast('Couldn’t refresh — check connection', { error: true });
+        setSyncing(false);
+      })
+      .catch(() => { if (isEmptyData(data)) setLoadError(true); else toast('Couldn’t refresh — check connection', { error: true }); setSyncing(false); });
+  }
+
+  useEffect(loadInitial, []);
 
   useEffect(() => {
-    const s = getSettings();
-    if (!s.apiUrl) {
-      setData(MOCK);
-      setLoading(false);
-      return;
-    }
-    api.get('all').then(r => { if (r && !r.error) setData(normalizeData(r)); setLoading(false); }).catch(() => setLoading(false));
-  }, []);
+    function onVis() { if (document.visibilityState === 'visible' && getSettings().apiUrl) refresh(); }
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [data]);
 
   function openEditEntry(entry) { setEditEntry(entry); setPrefill(null); setSheet('editEntry'); }
   function openAddEntry() { setEditEntry(null); setPrefill(null); setSheet('addEntry'); }
@@ -1621,15 +1896,19 @@ export default function App() {
             </span>
             <span className="spin" style={{ width: 22, height: 22, borderRadius: 99, border: `2.5px solid ${C.border}`, borderTopColor: C.accent }} />
           </div>
+        ) : loadError ? (
+          <LoadErrorState onRetry={refresh} onSettings={openSettings} />
         ) : (
           <div style={{ overflowY: 'auto', paddingBottom: 20 }}>
-            {tab === 'groups' && <GroupsScreen data={data} setData={setData} openAddEntry={openAddEntry} openEditEntry={openEditEntry} openGroupActions={openGroupActions} openSettings={openSettings} />}
-            {tab === 'installments' && <InstallmentsScreen data={data} setData={setData} openAddInstallment={() => setSheet('addInstallment')} openEditInstallment={openEditInstallment} openInstallmentDetail={openInstallmentDetail} openSettings={openSettings} />}
-            {tab === 'amortization' && <AmortizationScreen data={data} setData={setData} openAddAmortization={() => setSheet('addAmortization')} openEditAmortization={openEditAmortization} openAmortizationDetail={openAmortizationDetail} openSettings={openSettings} />}
-            {tab === 'summary' && <SummaryScreen data={data} openSettings={openSettings} />}
+            {isDemo && !demoDismissed && <div style={{ paddingTop: 12 }}><DemoBanner onConnect={openSettings} onDismiss={() => setDemoDismissed(true)} /></div>}
+            {tab === 'groups' && <GroupsScreen data={data} setData={setData} openAddEntry={openAddEntry} openEditEntry={openEditEntry} openGroupActions={openGroupActions} openSettings={openSettings} onRefresh={isDemo ? null : refresh} syncing={syncing} />}
+            {tab === 'installments' && <InstallmentsScreen data={data} setData={setData} openAddInstallment={() => setSheet('addInstallment')} openEditInstallment={openEditInstallment} openInstallmentDetail={openInstallmentDetail} openSettings={openSettings} onRefresh={isDemo ? null : refresh} syncing={syncing} />}
+            {tab === 'amortization' && <AmortizationScreen data={data} setData={setData} openAddAmortization={() => setSheet('addAmortization')} openEditAmortization={openEditAmortization} openAmortizationDetail={openAmortizationDetail} openSettings={openSettings} onRefresh={isDemo ? null : refresh} syncing={syncing} />}
+            {tab === 'summary' && <SummaryScreen data={data} openSettings={openSettings} onRefresh={isDemo ? null : refresh} syncing={syncing} />}
           </div>
         )}
 
+        <ToastHost />
         <BottomNav tab={tab} setTab={setTab} />
 
         {(sheet === 'addEntry') && <AddEntrySheet data={data} setData={setData} initEntry={editEntry} prefill={prefill} onClose={closeSheet} />}
