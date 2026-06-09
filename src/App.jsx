@@ -66,9 +66,11 @@ function fmtCompact(n) {
   if (v >= 1000) return '₱' + (v / 1000).toLocaleString('en-PH', { maximumFractionDigits: 1 }) + 'k';
   return '₱' + Math.round(v);
 }
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-function currentMonthStr() { return new Date().toISOString().slice(0, 7); }
-function dateToMonth(s) { return s ? String(s).slice(0, 7) : ''; }
+function pad2(n) { return String(n).padStart(2, '0'); }
+// Local-time today (NOT toISOString, which is UTC and rolls over a day early/late).
+function todayStr() { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function currentMonthStr() { return todayStr().slice(0, 7); }
+function dateToMonth(s) { return toPeriod(s); }
 function addMonths(yyyymm, n) {
   const [y, m] = yyyymm.split('-').map(Number);
   const d = new Date(y, m - 1 + n, 1);
@@ -87,10 +89,25 @@ function fmtDate(iso) {
   const [y, m, d] = String(iso).split('-').map(Number);
   return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 }
-// Normalize a possibly date-coerced value back to a YYYY-MM period string.
+// Normalize any stored value to a YYYY-MM period.
+// Plain strings ("2026-02", "2026-02-01") are sliced directly. A value Sheets
+// coerced into a Date (returned as a UTC ISO timestamp like "2026-01-31T16:00Z")
+// is parsed and read in LOCAL time, recovering the intended month.
 function toPeriod(v) {
   if (!v) return '';
-  return String(v).slice(0, 7);
+  const s = String(v);
+  if (s.indexOf('T') === -1 && /^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
+  const d = new Date(s);
+  return isNaN(d) ? s.slice(0, 7) : `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+// Same idea for full dates → YYYY-MM-DD (local), tolerant of coerced timestamps.
+function toDateStr(v) {
+  if (v == null || v === '') return v;
+  const s = String(v);
+  if (s.indexOf('T') === -1 && /^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  if (s.indexOf('T') === -1 && /^\d{4}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return isNaN(d) ? s.slice(0, 10) : `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 // Per-year monthly rate overrides for amortizations (bank fixing periods).
 function getRates(amort) {
@@ -189,7 +206,7 @@ function isEmptyData(d) {
 }
 function normalizeData(d) {
   if (!d) return d;
-  const dt = v => (v == null || v === '') ? v : String(v).slice(0, 10);
+  const dt = toDateStr;
   return {
     groups: (d.groups || []).map(g => ({ ...g, dateFrom: dt(g.dateFrom), dateTo: dt(g.dateTo), createdAt: dt(g.createdAt) })),
     entries: (d.entries || []).map(e => ({ ...e, store: e.entryType !== 'transaction' ? toPeriod(e.store) : e.store, createdAt: dt(e.createdAt) })),
@@ -1042,12 +1059,27 @@ function EditMoveSheet({ entry, data, setData, onClose, onEdit }) {
 
   function handleDelete() {
     const removed = entry;
-    setData(d => ({ ...d, entries: d.entries.filter(e => e.entryId !== removed.entryId) }));
+    // For installment/amortization payments, the linked Payment record is what
+    // drives the total & schedule — delete it too so they update.
+    const pmt = removed.entryType !== 'transaction'
+      ? data.payments.find(p => p.parentId === removed.linkedId && toPeriod(p.period) === toPeriod(removed.store))
+      : null;
+    setData(d => ({
+      ...d,
+      entries: d.entries.filter(e => e.entryId !== removed.entryId),
+      payments: pmt ? d.payments.filter(p => p.paymentId !== pmt.paymentId) : d.payments,
+    }));
     api.post({ type: 'delete_entry', rowId: removed.rowId || removed.entryId });
+    if (pmt) api.post({ type: 'delete_payment', rowId: pmt.rowId || pmt.paymentId });
     setTimeout(() => syncData(setData), 1500);
     toast('Entry deleted', { undo: () => {
-      setData(d => ({ ...d, entries: [removed, ...d.entries] }));
+      setData(d => ({
+        ...d,
+        entries: [removed, ...d.entries],
+        payments: pmt ? [...d.payments, pmt] : d.payments,
+      }));
       api.post({ type: 'append_entry', entryId: removed.entryId, groupId: removed.groupId, store: removed.store, item: removed.item, amount: removed.amount, status: removed.status, amountPaid: removed.amountPaid, entryType: removed.entryType, linkedId: removed.linkedId, createdAt: removed.createdAt });
+      if (pmt) api.post({ type: 'append_payment', paymentId: pmt.paymentId, parentType: pmt.parentType, parentId: pmt.parentId, period: pmt.period, amountPaid: pmt.amountPaid, expectedAmount: pmt.expectedAmount, createdAt: pmt.createdAt, updatedAt: pmt.updatedAt });
       setTimeout(() => syncData(setData), 1500);
       toast('Entry restored');
     } });

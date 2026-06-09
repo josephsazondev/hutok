@@ -52,7 +52,9 @@ function doPost(e) {
   try {
     if (!authorized(e.parameter || {})) return out({ error: 'Unauthorized' });
     var d = JSON.parse(e.postData.contents);
-    var today = new Date().toISOString().slice(0, 10);
+    // Local date in the spreadsheet's timezone (NOT UTC) so createdAt lands on the
+    // right calendar day for the user near midnight / month boundaries.
+    var today = Utilities.formatDate(new Date(), getSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
 
     if (d.type === 'append_group')         { d.createdAt = today; appendEntry('groups', d); }
     else if (d.type === 'append_entry')    { d.createdAt = today; appendEntry('entries', d); }
