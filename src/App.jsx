@@ -301,6 +301,10 @@ function isGroupFullyPaid(groupId, entries) {
   const g = entries.filter(e => e.groupId === groupId);
   return g.length > 0 && g.every(e => e.status === 'paid');
 }
+// Total still owed across a group's entries (0 when fully paid).
+function groupUnpaid(groupId, entries, payments) {
+  return entries.filter(e => e.groupId === groupId).reduce((s, e) => s + entryRemaining(e, payments), 0);
+}
 function getMonthStatus(parentId, period, payments) {
   const p = payments.find(p => p.parentId === parentId && p.period === period);
   if (p) {
@@ -344,10 +348,10 @@ function amortizationProgress(amort, payments) {
 function summaryStats(data) {
   const { entries, payments, installments, amortizations } = data;
   const cm = currentMonthStr();
-  const outstanding = entries.filter(e => e.status === 'unpaid' || e.status === 'partial').reduce((s, e) => {
-    const paid = (e.amountPaid === '' || e.amountPaid == null) ? 0 : Number(e.amountPaid);
-    return s + Math.max(0, Number(e.amount || 0) - paid);
-  }, 0);
+  // Use entryRemaining so linked installment/amortization entries are measured
+  // against their expected period amount — keeps this in sync with the per-group
+  // "unpaid" totals shown on the Groups screen.
+  const outstanding = entries.reduce((s, e) => s + entryRemaining(e, payments), 0);
   const paidThisMonth = entries.filter(e => e.status === 'paid' && String(e.createdAt || '').slice(0, 7) === cm).reduce((s, e) => s + Number(e.amount || 0), 0);
   const byType = {
     transactions: entries.filter(e => e.entryType === 'transaction').reduce((s, e) => s + Number(e.amount || 0), 0),
@@ -1272,7 +1276,7 @@ function EntryRow({ entry, payments, onClick }) {
   );
 }
 
-function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupActions, openSettings, onRefresh, syncing }) {
+function GroupsScreen({ data, setData, openAddEntry, openAddEntryToGroup, openEditEntry, openGroupActions, openSettings, onRefresh, syncing }) {
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState(() => new Set());
@@ -1282,6 +1286,53 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
   const filtered = search ? sorted.filter(g => g.label.toLowerCase().includes(search.toLowerCase())) : sorted;
   const groupIdSet = new Set(data.groups.map(g => g.groupId));
   const ungrouped = data.entries.filter(e => !e.groupId || !groupIdSet.has(e.groupId));
+
+  // On first load, keep only the latest group open; collapse the rest.
+  const didInitCollapse = useRef(false);
+  useEffect(() => {
+    if (didInitCollapse.current || sorted.length === 0) return;
+    const next = new Set(sorted.slice(1).map(g => g.groupId));
+    next.add('__ungrouped__');
+    setCollapsed(next);
+    didInitCollapse.current = true;
+  }, [sorted]);
+
+  // Mark every not-yet-paid entry in a group as fully paid, settling any
+  // linked installment/amortization payments for the period too.
+  function markAllPaid(groupId) {
+    const pending = data.entries.filter(e => e.groupId === groupId && e.status !== 'paid');
+    if (pending.length === 0) return;
+    const today = todayStr();
+    const pmtUpdates = [];
+    const entryUpdates = pending.map(e => {
+      if (e.entryType === 'transaction') {
+        return { ...e, status: 'paid', amountPaid: Number(e.amount || 0) };
+      }
+      const period = toPeriod(e.store);
+      const pmt = data.payments.find(p => p.parentId === e.linkedId && toPeriod(p.period) === period);
+      const parent = e.entryType === 'installment_payment'
+        ? data.installments.find(i => i.installmentId === e.linkedId)
+        : data.amortizations.find(a => a.amortizationId === e.linkedId);
+      const expected = pmt ? Number(pmt.expectedAmount || 0)
+        : parent ? (e.entryType === 'amortization_payment' ? rateForYear(parent, period.slice(0, 4)) : Number(parent.monthlyAmount))
+        : Number(e.amount || 0);
+      if (pmt && Number(pmt.amountPaid || 0) < expected) {
+        pmtUpdates.push({ ...pmt, amountPaid: expected, updatedAt: today });
+      }
+      return { ...e, status: 'paid', amount: expected || Number(e.amount || 0) };
+    });
+
+    const entryById = new Map(entryUpdates.map(e => [e.entryId, e]));
+    const pmtById = new Map(pmtUpdates.map(p => [p.paymentId, p]));
+    setData(d => ({
+      ...d,
+      entries: d.entries.map(e => entryById.get(e.entryId) || e),
+      payments: d.payments.map(p => pmtById.get(p.paymentId) || p),
+    }));
+    entryUpdates.forEach(e => api.post({ type: 'update_entry', rowId: e.rowId || e.entryId, ...e }));
+    pmtUpdates.forEach(p => api.post({ type: 'update_payment', rowId: p.rowId || p.paymentId, ...p }));
+    toast(`Marked ${entryUpdates.length} ${entryUpdates.length === 1 ? 'entry' : 'entries'} paid`);
+  }
 
   return (
     <div className="screen">
@@ -1312,6 +1363,7 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
         const entries = data.entries.filter(e => e.groupId === group.groupId);
         const total = groupTotal(group.groupId, data.entries);
         const allPaid = isGroupFullyPaid(group.groupId, data.entries);
+        const unpaid = groupUnpaid(group.groupId, data.entries, data.payments);
         const tint = gi % 2 === 0 ? [C.accent, C.accentBg] : [C.paid, C.paidBg];
         return (
           <div key={group.groupId} style={cardStyle}>
@@ -1324,7 +1376,9 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <div style={{ fontWeight: 800, fontSize: 15, color: C.ink, letterSpacing: -0.3 }}>{fmt(total)}</div>
-                  {allPaid && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: C.paidText, fontWeight: 700, marginTop: 2 }}><Icon name="check" size={11} stroke={2.6} /> all paid</div>}
+                  {allPaid
+                    ? <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: C.paidText, fontWeight: 700, marginTop: 2 }}><Icon name="check" size={11} stroke={2.6} /> all paid</div>
+                    : unpaid > 0 && <div style={{ fontSize: 10.5, color: C.unpaidText, fontWeight: 700, marginTop: 2 }}>{fmt(unpaid)} unpaid</div>}
                 </div>
                 <Icon name="chevron" size={18} color={C.hint} style={{ flexShrink: 0, transform: collapsed.has(group.groupId) ? 'none' : 'rotate(90deg)', transition: 'transform .2s' }} />
               </button>
@@ -1334,6 +1388,18 @@ function GroupsScreen({ data, setData, openAddEntry, openEditEntry, openGroupAct
               <EntryRow key={entry.entryId} entry={entry} payments={data.payments} onClick={() => openEditEntry(entry)} />
             ))}
             {!collapsed.has(group.groupId) && entries.length === 0 && <div style={{ padding: '14px 16px', borderTop: `1px solid ${C.divider}`, fontSize: 12.5, color: C.muted, textAlign: 'center' }}>No entries yet</div>}
+            {!collapsed.has(group.groupId) && (
+              <div style={{ display: 'flex', borderTop: `1px solid ${C.divider}` }}>
+                <button onClick={() => openAddEntryToGroup(group.groupId)} className="pressable" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, flex: 1, padding: '12px 16px', background: C.accentBg, color: C.accentText, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                  <Icon name="plus" size={16} stroke={2.4} /> Add entry
+                </button>
+                {!allPaid && entries.length > 0 && (
+                  <button onClick={() => markAllPaid(group.groupId)} className="pressable" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, flex: 1, padding: '12px 16px', background: C.paidBg, color: C.paidText, border: 'none', borderLeft: `1px solid ${C.divider}`, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                    <Icon name="check" size={15} stroke={2.6} /> Mark all paid
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
@@ -1909,6 +1975,7 @@ export default function App() {
 
   function openEditEntry(entry) { setEditEntry(entry); setPrefill(null); setSheet('editEntry'); }
   function openAddEntry() { setEditEntry(null); setPrefill(null); setSheet('addEntry'); }
+  function openAddEntryToGroup(groupId) { setEditEntry(null); setPrefill({ groupId }); setSheet('addEntry'); }
   function openEditInstallment(inst) { setEditItem(inst); setSheet('editInstallment'); }
   function openEditAmortization(amort) { setEditItem(amort); setSheet('editAmortization'); }
   function openInstallmentDetail(inst) { setEditItem(inst); setSheet('installmentDetail'); }
@@ -1933,7 +2000,7 @@ export default function App() {
         ) : (
           <div style={{ overflowY: 'auto', paddingBottom: 20 }}>
             {isDemo && !demoDismissed && <div style={{ paddingTop: 12 }}><DemoBanner onConnect={openSettings} onDismiss={() => setDemoDismissed(true)} /></div>}
-            {tab === 'groups' && <GroupsScreen data={data} setData={setData} openAddEntry={openAddEntry} openEditEntry={openEditEntry} openGroupActions={openGroupActions} openSettings={openSettings} onRefresh={isDemo ? null : refresh} syncing={syncing} />}
+            {tab === 'groups' && <GroupsScreen data={data} setData={setData} openAddEntry={openAddEntry} openAddEntryToGroup={openAddEntryToGroup} openEditEntry={openEditEntry} openGroupActions={openGroupActions} openSettings={openSettings} onRefresh={isDemo ? null : refresh} syncing={syncing} />}
             {tab === 'installments' && <InstallmentsScreen data={data} setData={setData} openAddInstallment={() => setSheet('addInstallment')} openEditInstallment={openEditInstallment} openInstallmentDetail={openInstallmentDetail} openSettings={openSettings} onRefresh={isDemo ? null : refresh} syncing={syncing} />}
             {tab === 'amortization' && <AmortizationScreen data={data} setData={setData} openAddAmortization={() => setSheet('addAmortization')} openEditAmortization={openEditAmortization} openAmortizationDetail={openAmortizationDetail} openSettings={openSettings} onRefresh={isDemo ? null : refresh} syncing={syncing} />}
             {tab === 'summary' && <SummaryScreen data={data} openSettings={openSettings} onRefresh={isDemo ? null : refresh} syncing={syncing} />}
